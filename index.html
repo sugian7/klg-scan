@@ -32,7 +32,7 @@ h2 { margin: 0 0 6px 0; }
 }
 video { width: 100%; display: block; }
 
-/* FRAME VISUAL */
+/* FRAME */
 .overlay {
   position: absolute;
   left: 6%;
@@ -87,7 +87,7 @@ canvas { display: none; }
 
 <h2>Scan Nomor Layanan KLG</h2>
 <div class="step">
-1️⃣ Scan / Input Nomor<br>
+1️⃣ Scan kartu atau input manual<br>
 2️⃣ Cek data<br>
 3️⃣ Konfirmasi
 </div>
@@ -101,6 +101,7 @@ canvas { display: none; }
 
 <button class="btn-primary" onclick="ambilFoto()">📸 Ambil Foto</button>
 <button class="btn-secondary" onclick="scan()">🔍 Scan Nomor</button>
+<button class="btn-secondary" onclick="bukaManual()">✍️ Input Manual</button>
 
 <div id="panel"></div>
 
@@ -119,7 +120,11 @@ canvas { display: none; }
 <!-- MANUAL INPUT -->
 <div id="manualSection">
 <b>✍️ Input Manual Nomor Layanan</b>
-<input id="manualInput" inputmode="numeric" placeholder="Masukkan nomor layanan lengkap" />
+<input
+  id="manualInput"
+  inputmode="numeric"
+  placeholder="Ketik nomor layanan (hanya angka)"
+/>
 <button class="btn-success" onclick="kirimManual()">✅ Kirim</button>
 </div>
 
@@ -172,7 +177,7 @@ function ambilFoto() {
   ctx.imageSmoothingEnabled = false;
 
   ctx.drawImage(video, cropX, cropY, cropW, cropH, 0, 0, canvas.width, canvas.height);
-  panel.innerText = "📸 Foto diambil. Siap scan.";
+  panel.innerText = "📸 Foto diambil. Silakan scan.";
 }
 
 /* ================= SCAN OCR ================= */
@@ -184,17 +189,24 @@ async function scan() {
   const { data:{ text }} = await worker.recognize(canvas);
   const digits = text.replace(/\D/g, "");
 
-  // validasi dasar
   if (!digits.startsWith("1") || digits.length < 8) {
-    panel.innerText = "❌ OCR kurang stabil. Silakan input manual.";
-    manualSection.style.display = "block";
+    panel.innerText = "❌ OCR tidak stabil. Gunakan input manual.";
     return;
   }
 
   kirimKeBackend(digits);
 }
 
-/* ================= MANUAL ================= */
+/* ================= BUKA MANUAL ================= */
+function bukaManual() {
+  preview.style.display = "none";
+  panel.innerText = "✍️ Silakan input nomor layanan secara manual.";
+  manualSection.style.display = "block";
+  manualInput.value = "";
+  manualInput.focus();
+}
+
+/* ================= MANUAL KIRIM ================= */
 function kirimManual() {
   const nomor = manualInput.value.replace(/\D/g, "");
   if (!nomor.startsWith("1") || nomor.length < 8) {
