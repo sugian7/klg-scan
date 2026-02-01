@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Scan Nomor Layanan KLG</title>
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js"></script>
+</head>
+<body>
+
+<h3>Scan Nomor Layanan KLG</h3>
+
+<video id="video" autoplay playsinline style="width:100%;border:1px solid #ccc;"></video>
+<canvas id="canvas" style="display:none;"></canvas>
+
+<br>
+<button onclick="ambilFoto()">📸 Ambil Foto</button>
+<button onclick="scan()">🔍 Scan</button>
+
+<div id="result" style="margin-top:10px;font-weight:bold;"></div>
+
+<script>
+const video = document.getElementById("video");
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
+
+// AKSES KAMERA
+navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } })
+  .then(stream => {
+    video.srcObject = stream;
+  })
+  .catch(err => {
+    alert("GAGAL AKSES KAMERA");
+    console.error(err);
+  });
+
+function ambilFoto() {
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  ctx.drawImage(video, 0, 0);
+  document.getElementById("result").innerText = "📸 Foto diambil";
+}
+
+function scan() {
+  document.getElementById("result").innerText = "🔄 Membaca...";
+
+  Tesseract.recognize(canvas, 'eng', {
+    tessedit_char_whitelist: '0123456789'
+  }).then(({ data: { text } }) => {
+
+    const nomor = text.replace(/\D/g, '');
+
+    fetch("https://script.google.com/macros/s/AKfycbwqemGySx5h5X1JKHlH_TKyd2PSr224MCKeYObWDuF8LL9Vt4oMq5Gyfuh2fIaZ9DMVwA/exec", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded"
+      },
+      body: "nomor=" + nomor
+    })
+    .then(res => res.json())
+    .then(r => {
+      document.getElementById("result").innerText =
+        r.found? "✅ DITEMUKAN" : "❌ TIDAK DITEMUKAN";
+    });
+  });
+}
+</script>
+
+</body>
+</html>
