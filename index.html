@@ -4,7 +4,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Scan Nomor Layanan KLG</title>
 
-  <!-- Tesseract OCR -->
   <script src="https://unpkg.com/tesseract.js@4.0.2/dist/tesseract.min.js"></script>
 
   <style>
@@ -32,42 +31,38 @@ const canvas = document.getElementById("canvas");
 const ctx = canvas.getContext("2d");
 const resultDiv = document.getElementById("result");
 
-let worker = null;
+let worker;
 
-/* ======================
-   AKTIFKAN KAMERA
-====================== */
+// ===================
+// AKSES KAMERA
+// ===================
 navigator.mediaDevices.getUserMedia({
   video: { facingMode: "environment" }
 })
 .then(stream => video.srcObject = stream)
 .catch(() => alert("❌ Gagal akses kamera"));
 
-/* ======================
-   INIT OCR (ANGKA ONLY)
-====================== */
+// ===================
+// INIT OCR
+// ===================
 (async () => {
   worker = await Tesseract.createWorker();
   await worker.loadLanguage("eng");
   await worker.initialize("eng");
-  await worker.setParameters({
-    tessedit_char_whitelist: "0123456789",
-    tessedit_pageseg_mode: Tesseract.PSM.SINGLE_LINE
-  });
 })();
 
-/* ======================
-   AMBIL FOTO + CROP
-====================== */
+// ===================
+// AMBIL FOTO (CROP AMAN)
+// ===================
 function ambilFoto() {
   const w = video.videoWidth;
   const h = video.videoHeight;
 
-  // Area nomor layanan (bawah kanan kartu)
-  const cropX = w * 0.45;
-  const cropY = h * 0.55;
-  const cropW = w * 0.5;
-  const cropH = h * 0.25;
+  // Area LEBIH BESAR & AMAN
+  const cropX = w * 0.35;
+  const cropY = h * 0.50;
+  const cropW = w * 0.6;
+  const cropH = h * 0.35;
 
   canvas.width = cropW;
   canvas.height = cropH;
@@ -78,85 +73,55 @@ function ambilFoto() {
     0, 0, cropW, cropH
   );
 
-  // Grayscale
-  const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
-  for (let i = 0; i < img.data.length; i += 4) {
-    const g = (img.data[i] + img.data[i+1] + img.data[i+2]) / 3;
-    img.data[i] = img.data[i+1] = img.data[i+2] = g;
-  }
-  ctx.putImageData(img, 0, 0);
-
   resultDiv.innerText = "📸 Foto diambil";
 }
 
-/* ======================
-   OCR MULTI-SCAN + VOTING
-====================== */
+// ===================
+// OCR + VALIDASI POLA
+// ===================
 async function scan() {
   if (!worker) {
     resultDiv.innerText = "❌ OCR belum siap";
     return;
   }
 
-  resultDiv.innerText = "🔄 Membaca nomor layanan (3x scan)...";
+  resultDiv.innerText = "🔄 Membaca nomor layanan...";
 
-  const scans = [];
+  const { data: { text } } = await worker.recognize(canvas);
 
-  // OCR 3 KALI
-  for (let i = 0; i < 3; i++) {
-    const { data: { text } } = await worker.recognize(canvas);
-    let angka = text.replace(/\D/g, "");
+  // Ambil SEMUA angka
+  const angka = text.replace(/\D/g, "");
 
-    // Normalisasi: nomor layanan selalu diawali "1"
-    const idx = angka.indexOf("1");
-    if (idx !== -1) angka = angka.substring(idx);
+  // Cari nomor layanan berbasis pola
+  const match = angka.match(/114102\d{9}/);
 
-    scans.push(angka);
-  }
-
-  // Voting per digit
-  const maxLen = Math.max(...scans.map(s => s.length));
-  let final = "";
-
-  for (let i = 0; i < maxLen; i++) {
-    const freq = {};
-    scans.forEach(s => {
-      const d = s[i];
-      if (!d) return;
-      freq[d] = (freq[d] || 0) + 1;
-    });
-
-    const best = Object.entries(freq)
-      .sort((a, b) => b[1] - a[1])[0];
-
-    if (best) final += best[0];
-  }
-
-  if (final.length < 14) {
+  if (!match) {
     resultDiv.innerText =
-      "❌ Nomor tidak valid\n\nOCR RAW:\n" + scans.join("\n");
+      "❌ Nomor layanan tidak valid\n\nOCR RAW:\n" + text;
     return;
   }
 
-  resultDiv.innerText =
-    "📨 Nomor FINAL:\n" + final + "\n\n⏳ Mengirim ke sistem...";
+  const nomorFinal = match[0];
 
-  /* ======================
-     KIRIM KE BACKEND
-  ====================== */
+  resultDiv.innerText =
+    "📨 Nomor FINAL:\n" + nomorFinal + "\n\n⏳ Mengirim ke sistem...";
+
+  // ===================
+  // KIRIM KE BACKEND
+  // ===================
   fetch(
     "https://script.google.com/macros/s/AKfycbyEzNfSSSgMabfvACFwwkHK9uk6gf1L6xwVwMvPCnQaFJNJfXKEEkeeVcsnV57Xpitpxg/exec",
     {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: "nomor=" + encodeURIComponent(final)
+      body: "nomor=" + encodeURIComponent(nomorFinal)
     }
   )
   .then(res => res.json())
   .then(r => {
     resultDiv.innerText =
       r.found
-        ? "✅ DITEMUKAN\nStatus diperbarui di spreadsheet"
+        ? "✅ DITEMUKAN\nStatus diperbarui"
         : "❌ TIDAK DITEMUKAN\nNomor tidak ada di batch";
   })
   .catch(err => {
