@@ -1,96 +1,77 @@
 <!DOCTYPE html>
 <html lang="id">
 <head>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Scan Nomor Layanan KLG</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Scan Nomor Layanan KLG</title>
 
-  <script src="https://unpkg.com/tesseract.js@4.0.2/dist/tesseract.min.js"></script>
+<script src="https://unpkg.com/tesseract.js@4.0.2/dist/tesseract.min.js"></script>
 
-  <style>
-    body {
-      font-family: Arial, sans-serif;
-      padding: 12px;
-      background: #f7f7f7;
-    }
-    h3 { margin-bottom: 4px; }
-    .hint { font-size: 14px; color: #555; margin-bottom: 8px; }
+<style>
+body { font-family: Arial, sans-serif; padding: 12px; background:#f7f7f7 }
+h3 { margin-bottom:4px }
+.hint { font-size:14px; color:#555; margin-bottom:8px }
 
-    .camera-box {
-      position: relative;
-      width: 100%;
-      max-width: 420px;
-      margin: auto;
-      border-radius: 12px;
-      overflow: hidden;
-      background: #000;
-    }
-    video {
-      width: 100%;
-      display: block;
-    }
+.camera-box {
+  position:relative;
+  width:100%;
+  max-width:420px;
+  margin:auto;
+  border-radius:12px;
+  overflow:hidden;
+  background:#000;
+}
+video { width:100% }
 
-    /* FRAME VISUAL */
-    .overlay {
-      position: absolute;
-      left: 8%;
-      top: 58%;
-      width: 84%;
-      height: 22%;
-      border: 3px dashed #00ff00;
-      border-radius: 10px;
-      pointer-events: none;
-      box-sizing: border-box;
-    }
-    .overlay-text {
-      position: absolute;
-      bottom: -26px;
-      width: 100%;
-      text-align: center;
-      font-size: 13px;
-      color: #00aa00;
-      font-weight: bold;
-      pointer-events: none;
-    }
+.overlay {
+  position:absolute;
+  left:6%;
+  top:58%;
+  width:88%;
+  height:24%;
+  border:3px dashed #00ff00;
+  border-radius:10px;
+  pointer-events:none;
+}
 
-    button {
-      width: 100%;
-      padding: 14px;
-      font-size: 16px;
-      margin-top: 10px;
-      border-radius: 8px;
-      border: none;
-      background: #1976d2;
-      color: #fff;
-    }
-    button.secondary { background: #555; }
+button {
+  width:100%;
+  padding:14px;
+  font-size:16px;
+  margin-top:10px;
+  border-radius:8px;
+  border:none;
+  background:#1976d2;
+  color:#fff;
+}
+button.secondary { background:#555 }
 
-    #panel {
-      margin-top: 12px;
-      background: #fff;
-      padding: 12px;
-      border-radius: 8px;
-      font-weight: bold;
-      white-space: pre-wrap;
-    }
-    canvas { display: none; }
-  </style>
+#panel {
+  margin-top:12px;
+  background:#fff;
+  padding:12px;
+  border-radius:8px;
+  white-space:pre-wrap;
+  font-weight:bold;
+}
+
+canvas { display:none }
+</style>
 </head>
 
 <body>
 
 <h3>Scan Nomor Layanan KLG</h3>
-<div class="hint">Dekatkan kartu → luruskan → fokus ke nomor</div>
+<div class="hint">Pastikan SELURUH nomor masuk kotak & kartu sangat dekat</div>
 
 <div class="camera-box">
   <video id="video" autoplay playsinline></video>
   <div class="overlay"></div>
-  <div class="overlay-text">Pastikan SELURUH nomor masuk kotak</div>
 </div>
 
 <canvas id="canvas"></canvas>
 
 <button onclick="ambilFoto()">📸 Ambil Foto</button>
-<button class="secondary" onclick="scan()">🔍 Scan Nomor</button>
+<button class="secondary" onclick="scan()">🔍 Scan</button>
 
 <div id="panel"></div>
 
@@ -100,98 +81,98 @@ const canvas = document.getElementById("canvas");
 const ctx = canvas.getContext("2d");
 const panel = document.getElementById("panel");
 
-let worker = null;
+let worker;
 
 // ================= KAMERA =================
 navigator.mediaDevices.getUserMedia({
-  video: { facingMode: "environment" }
+  video:{ facingMode:"environment" }
 })
-.then(stream => video.srcObject = stream)
-.catch(() => alert("❌ Kamera tidak dapat diakses"));
+.then(s=>video.srcObject=s)
+.catch(()=>alert("❌ Kamera gagal"));
 
-// ================= OCR INIT =================
-(async () => {
-  worker = await Tesseract.createWorker();
+// ================= OCR =================
+(async()=>{
+  worker = await Tesseract.createWorker({
+    logger:()=>{}
+  });
   await worker.loadLanguage("eng");
   await worker.initialize("eng");
 })();
 
-// ================= AMBIL FOTO (CROP LEBAR) =================
-function ambilFoto() {
+// ================= FOTO + UPSCALE =================
+function ambilFoto(){
   const w = video.videoWidth;
   const h = video.videoHeight;
 
-  // 🔴 INI KUNCI PERBAIKAN
   const cropX = w * 0.05;
-  const cropY = h * 0.55;
-  const cropW = w * 0.90;   // ⬅️ LEBAR (angka belakang aman)
-  const cropH = h * 0.28;   // ⬅️ sedikit lebih tinggi
+  const cropY = h * 0.56;
+  const cropW = w * 0.90;
+  const cropH = h * 0.28;
 
-  canvas.width = cropW;
-  canvas.height = cropH;
+  // 🔥 UPSCALE 2x (KUNCI ANGKA BELAKANG)
+  canvas.width  = cropW * 2;
+  canvas.height = cropH * 2;
+
+  ctx.imageSmoothingEnabled = false;
 
   ctx.drawImage(
     video,
     cropX, cropY, cropW, cropH,
-    0, 0, cropW, cropH
+    0, 0, canvas.width, canvas.height
   );
 
-  panel.innerText = "📸 Foto diambil. Siap scan.";
+  panel.innerText = "📸 Foto diambil (resolusi ditingkatkan)";
 }
 
-// ================= LOGIKA ANGKA =================
-function cariNomorValid(raw) {
-  const digits = raw.replace(/\D/g, "");
+// ================= PARSING ANGKA =================
+function cariNomor(raw){
+  const d = raw.replace(/\D/g,"");
 
-  // cari substring angka panjang fleksibel, diawali 1
-  for (let i = 0; i < digits.length; i++) {
-    for (let len = 10; len <= 18; len++) {
-      const potong = digits.substr(i, len);
-      if (/^1\d+$/.test(potong)) return potong;
+  // sliding window
+  for(let i=0;i<d.length;i++){
+    for(let l=10;l<=18;l++){
+      const p = d.substr(i,l);
+      if(/^1\d+$/.test(p)) return p;
     }
   }
   return null;
 }
 
-// ================= OCR + KIRIM =================
-async function scan() {
-  if (!worker) {
-    panel.innerText = "❌ OCR belum siap";
+// ================= SCAN =================
+async function scan(){
+  if(!worker){
+    panel.innerText="❌ OCR belum siap";
     return;
   }
 
-  panel.innerText = "🔄 Membaca nomor layanan...";
+  panel.innerText="🔄 Membaca nomor...";
 
-  const { data: { text } } = await worker.recognize(canvas);
-  const nomorFinal = cariNomorValid(text);
+  const { data:{ text }} = await worker.recognize(canvas);
+  const nomor = cariNomor(text);
 
-  if (!nomorFinal) {
-    panel.innerText =
-      "❌ Gagal membaca nomor\n\nOCR RAW:\n" + text;
+  if(!nomor){
+    panel.innerText="❌ Gagal\n\nOCR RAW:\n"+text;
     return;
   }
 
-  panel.innerText =
-    "📨 Nomor terbaca:\n" +
-    nomorFinal +
-    "\n\n⏳ Mengirim ke sistem...";
+  panel.innerText="📨 Nomor:\n"+nomor+"\n\n⏳ Mengirim...";
 
   fetch(
     "https://script.google.com/macros/s/AKfycbzc00z8O_0hJ3HYYyLdSZMLIxmK_BdjjCzueBdfVxEUYFX92VNLb15kd6AM_fid0mgdNQ/exec",
     {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: "nomor=" + encodeURIComponent(nomorFinal)
+      method:"POST",
+      headers:{ "Content-Type":"application/x-www-form-urlencoded" },
+      body:"nomor="+encodeURIComponent(nomor)
     }
   )
-  .then(res => res.json())
-  .then(r => {
+  .then(r=>r.json())
+  .then(r=>{
     panel.innerText = r.found
       ? "✅ DITEMUKAN\nStatus diperbarui"
-      : "❌ TIDAK DITEMUKAN\nNomor tidak ada di batch";
+      : "❌ TIDAK DITEMUKAN";
   })
-  .catch(err => {
-    panel.innerText = "❌ Gagal kirim ke server\n" + err;
+  .catch(e=>{
+    panel.innerText="❌ Server error\n"+e;
   });
 }
 </script>
