@@ -4,28 +4,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Scan Nomor Layanan KLG</title>
 
+  <!-- OCR -->
   <script src="https://unpkg.com/tesseract.js@4.0.2/dist/tesseract.min.js"></script>
 
   <style>
-    body {
-      font-family: Arial, sans-serif;
-      padding: 12px;
-    }
-    video {
-      width: 100%;
-      border: 1px solid #ccc;
-      margin-bottom: 8px;
-    }
-    button {
-      padding: 10px;
-      margin-right: 6px;
-      font-size: 14px;
-    }
-    #result {
-      margin-top: 10px;
-      font-weight: bold;
-      white-space: pre-wrap;
-    }
+    body { font-family: Arial, sans-serif; padding: 12px; }
+    video { width: 100%; border: 1px solid #ccc; margin-bottom: 8px; }
+    button { padding: 10px; margin-right: 6px; font-size: 14px; }
+    #result { margin-top: 10px; font-weight: bold; white-space: pre-wrap; }
   </style>
 </head>
 <body>
@@ -48,26 +34,19 @@ const resultDiv = document.getElementById("result");
 
 let worker = null;
 
-// === AKTIFKAN KAMERA ===
-navigator.mediaDevices.getUserMedia({
-  video: { facingMode: "environment" }
-})
-.then(stream => {
-  video.srcObject = stream;
-})
-.catch(() => {
-  alert("Gagal akses kamera");
-});
+// Kamera
+navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } })
+  .then(stream => video.srcObject = stream)
+  .catch(() => alert("Gagal akses kamera"));
 
-// === INIT OCR ===
-async function initOCR() {
+// Init OCR
+(async () => {
   worker = await Tesseract.createWorker();
-  await worker.loadLanguage('eng');
-  await worker.initialize('eng');
-}
-initOCR();
+  await worker.loadLanguage("eng");
+  await worker.initialize("eng");
+})();
 
-// === AMBIL FOTO + CROP ===
+// Ambil foto + crop area nomor layanan
 function ambilFoto() {
   const w = video.videoWidth;
   const h = video.videoHeight;
@@ -95,7 +74,7 @@ function ambilFoto() {
   resultDiv.innerText = "📸 Foto diambil";
 }
 
-// === OCR + NORMALISASI NOMOR LAYANAN ===
+// OCR + kirim ke server
 async function scan() {
   if (!worker) {
     resultDiv.innerText = "❌ OCR belum siap";
@@ -106,20 +85,12 @@ async function scan() {
 
   const { data: { text } } = await worker.recognize(canvas);
 
-  // Ambil semua angka
-  let angka = text.replace(/\D/g, '');
+  let angka = text.replace(/\D/g, "");
+  const idx = angka.indexOf("1");
+  if (idx !== -1) angka = angka.substring(idx);
 
-  // 🔑 NORMALISASI:
-  // potong mulai dari digit '1' pertama
-  const idx = angka.indexOf('1');
-  if (idx !== -1) {
-    angka = angka.substring(idx);
-  }
-
-  // validasi panjang
   if (angka.length < 14) {
-    resultDiv.innerText =
-      "❌ Nomor tidak valid\n\nOCR:\n" + text;
+    resultDiv.innerText = "❌ Nomor tidak valid\n\nOCR:\n" + text;
     return;
   }
 
@@ -138,11 +109,11 @@ async function scan() {
   .then(r => {
     resultDiv.innerText =
       r.found
-        ? "✅ DITEMUKAN\nStatus diperbarui"
-        : "❌ TIDAK DITEMUKAN";
+        ? "✅ DITEMUKAN\nStatus diperbarui di spreadsheet."
+        : "❌ TIDAK DITEMUKAN\nNomor tidak ada di batch.";
   })
-  .catch(() => {
-    resultDiv.innerText = "❌ Gagal mengirim ke server";
+  .catch(err => {
+    resultDiv.innerText = "❌ Gagal mengirim ke server\n" + err;
   });
 }
 </script>
