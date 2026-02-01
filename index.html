@@ -25,31 +25,30 @@ body { margin:0; font-family:Arial; background:#000; }
   text-align:center;
   font-weight:bold;
 }
+button {
+  width:100%;
+  padding:14px;
+  font-size:16px;
+  margin-top:8px;
+}
 #verifyMode {
   display:none;
   background:#fff;
   padding:16px;
 }
 .label { font-weight:bold; }
-button {
-  width:100%;
-  padding:12px;
-  margin-top:10px;
-  font-size:16px;
-}
 </style>
 </head>
 
 <body>
 
-<!-- MODE SCAN -->
 <div id="scanMode">
   <video id="video" autoplay playsinline></video>
   <div id="overlay"></div>
-  <div id="panel">🟡 Arahkan nomor layanan ke dalam kotak…</div>
+  <div id="panel">Arahkan nomor layanan ke dalam kotak</div>
+  <button onclick="ambilFoto()">📸 AMBIL FOTO</button>
 </div>
 
-<!-- MODE VERIFIKASI -->
 <div id="verifyMode">
   <div><span class="label">Nama:</span> <span id="vNama">-</span></div>
   <div><span class="label">Nomor Layanan:</span> <span id="vNomor">-</span></div>
@@ -64,18 +63,9 @@ button {
 <canvas id="canvas" style="display:none;"></canvas>
 
 <script>
-/* =====================
-   KONFIG
-===================== */
 const API_URL =
 "https://script.google.com/macros/s/AKfycbzRKxzaQlDziui3loYrLWlUk4bywg-iHEUJwcAzu-IBuUFEUHCC3vZM9W379wphKNVMwg/exec";
 
-const SCAN_HISTORY_SIZE = 5;
-const STABLE_MIN_HIT = 2;
-
-/* =====================
-   INIT
-===================== */
 const video = document.getElementById("video");
 const canvas = document.getElementById("canvas");
 const ctx = canvas.getContext("2d");
@@ -83,25 +73,23 @@ const panel = document.getElementById("panel");
 
 let worker;
 let foundMeta = null;
-let scanHistory = [];
 
 // Kamera
 navigator.mediaDevices.getUserMedia({
-  video: { facingMode:"environment" }
-}).then(s => video.srcObject = s);
+  video: { facingMode: "environment" }
+}).then(stream => {
+  video.srcObject = stream;
+});
 
 // OCR
-(async()=>{
-  worker = await Tesseract.createWorker({ logger:()=>{} });
+(async function initOCR(){
+  worker = await Tesseract.createWorker({ logger: function(){} });
   await worker.loadLanguage("eng");
   await worker.initialize("eng");
 })();
 
-/* =====================
-   AUTO SCAN
-===================== */
-setInterval(async()=>{
-  if (!video.videoWidth || !worker || foundMeta) return;
+async function ambilFoto(){
+  panel.innerText = "📖 Membaca nomor layanan…";
 
   const w = video.videoWidth;
   const h = video.videoHeight;
@@ -115,62 +103,45 @@ setInterval(async()=>{
     h * 0.52,
     w * 0.7,
     h * 0.16,
-    0,0,
+    0, 0,
     canvas.width,
     canvas.height
   );
 
-  const { data:{ text } } = await worker.recognize(canvas);
-  const digits = text.replace(/\D/g,"");
+  const result = await worker.recognize(canvas);
+  const digits = result.data.text.replace(/\D/g, "");
   const match = digits.match(/114102\d{9}/);
 
   if (!match) {
-    panel.innerText = "🟡 Arahkan nomor layanan ke dalam kotak…";
-    scanHistory = [];
+    panel.innerText = "❌ Nomor tidak terbaca. Coba ulang.";
     return;
   }
 
-  scanHistory.push(match[0]);
-  if (scanHistory.length > SCAN_HISTORY_SIZE) {
-    scanHistory.shift();
-  }
-
-  panel.innerText = "🟢 Membaca…";
-
-  const freq = {};
-  scanHistory.forEach(n => freq[n] = (freq[n]||0)+1);
-
-  const stableNumber = Object.keys(freq)
-    .find(k => freq[k] >= STABLE_MIN_HIT);
-
-  if (!stableNumber) return;
-
   panel.innerText = "⏳ Mengirim ke sistem…";
 
-  fetch(API_URL,{
-    method:"POST",
-    headers:{ "Content-Type":"application/x-www-form-urlencoded" },
-    body:`action=scan&nomor=${encodeURIComponent(stableNumber)}`
-  })
-  .then(r=>r.json())
-  .then(d=>{
-    if (!d.found) {
-      panel.innerText = "❌ Nomor tidak ditemukan";
-      scanHistory = [];
-      return;
-    }
-    foundMeta = d;
-    tampilkanData(d);
-  });
+  const options = {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded"
+    },
+    body: "action=scan&nomor=" + encodeURIComponent(match[0])
+  };
 
-}, 800);
+  fetch(API_URL, options)
+    .then(res => res.json())
+    .then(data => {
+      if (!data.found) {
+        panel.innerText = "❌ Nomor tidak ditemukan";
+        return;
+      }
+      foundMeta = data;
+      tampilkan(data);
+    });
+}
 
-/* =====================
-   UI
-===================== */
-function tampilkanData(d){
-  scanMode.style.display="none";
-  verifyMode.style.display="block";
+function tampilkan(d){
+  scanMode.style.display = "none";
+  verifyMode.style.display = "block";
 
   vNama.textContent  = d.data.nama || "-";
   vNomor.textContent = d.data.nomor_layanan || "-";
@@ -180,20 +151,24 @@ function tampilkanData(d){
 }
 
 function ubahStatus(){
-  fetch(API_URL,{
-    method:"POST",
-    headers:{ "Content-Type":"application/x-www-form-urlencoded" },
-    body:`action=update&sheet=${foundMeta.sheet}&row=${foundMeta.row}`
-  })
-  .then(()=>alert("✅ Status berhasil diubah"));
+  const options = {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded"
+    },
+    body: "action=update&sheet=" + encodeURIComponent(foundMeta.sheet) +
+          "&row=" + encodeURIComponent(foundMeta.row)
+  };
+
+  fetch(API_URL, options)
+    .then(() => alert("✅ Status berhasil diubah"));
 }
 
 function kembali(){
   foundMeta = null;
-  scanHistory = [];
-  verifyMode.style.display="none";
-  scanMode.style.display="block";
-  panel.innerText = "🟡 Arahkan nomor layanan ke dalam kotak…";
+  verifyMode.style.display = "none";
+  scanMode.style.display = "block";
+  panel.innerText = "Arahkan nomor layanan ke dalam kotak";
 }
 </script>
 
