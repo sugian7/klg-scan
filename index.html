@@ -3,7 +3,10 @@
 <head>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Scan Nomor Layanan KLG</title>
-  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js"></script>
+
+  <!-- ✅ TESSERACT CDN (STABIL) -->
+  <script src="https://unpkg.com/tesseract.js@4.0.2/dist/tesseract.min.js"></script>
+
   <style>
     body {
       font-family: Arial, sans-serif;
@@ -44,77 +47,111 @@ const canvas = document.getElementById("canvas");
 const ctx = canvas.getContext("2d");
 const resultDiv = document.getElementById("result");
 
-// === AKTIFKAN KAMERA BELAKANG ===
+let worker = null;
+
+// === AKTIFKAN KAMERA ===
 navigator.mediaDevices.getUserMedia({
   video: { facingMode: "environment" }
 })
 .then(stream => {
   video.srcObject = stream;
 })
-.catch(err => {
-  alert("Gagal akses kamera. Pastikan izin kamera diaktifkan.");
-  console.error(err);
+.catch(() => {
+  alert("Gagal akses kamera. Aktifkan izin kamera.");
 });
 
-// === AMBIL FOTO ===
-function ambilFoto() {
-  canvas.width = video.videoWidth;
-  canvas.height = video.videoHeight;
-  ctx.drawImage(video, 0, 0);
-  resultDiv.innerText = "📸 Foto diambil. Silakan Scan.";
+// === INIT TESSERACT WORKER (WAJIB) ===
+async function initOCR() {
+  if (!window.Tesseract) {
+    alert("Library OCR gagal dimuat");
+    return;
+  }
+
+  worker = await Tesseract.createWorker({
+    logger: m => console.log(m)
+  });
+
+  await worker.loadLanguage('eng');
+  await worker.initialize('eng');
 }
 
-// === OCR + KIRIM KE APPS SCRIPT ===
-function scan() {
+initOCR();
+
+// === AMBIL FOTO + CROP ===
+function ambilFoto() {
+  const w = video.videoWidth;
+  const h = video.videoHeight;
+
+  const cropX = w * 0.45;
+  const cropY = h * 0.55;
+  const cropW = w * 0.5;
+  const cropH = h * 0.25;
+
+  canvas.width = cropW;
+  canvas.height = cropH;
+
+  ctx.drawImage(
+    video,
+    cropX, cropY, cropW, cropH,
+    0, 0, cropW, cropH
+  );
+
+  // grayscale
+  const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  for (let i = 0; i < imgData.data.length; i += 4) {
+    const avg = (imgData.data[i] + imgData.data[i+1] + imgData.data[i+2]) / 3;
+    imgData.data[i] = avg;
+    imgData.data[i+1] = avg;
+    imgData.data[i+2] = avg;
+  }
+  ctx.putImageData(imgData, 0, 0);
+
+  resultDiv.innerText = "📸 Foto diambil";
+}
+
+// === OCR + KIRIM KE BACKEND ===
+async function scan() {
+  if (!worker) {
+    resultDiv.innerText = "❌ OCR belum siap";
+    return;
+  }
+
   resultDiv.innerText = "🔄 Membaca nomor layanan...";
 
-  Tesseract. recognize(
-    canvas,
-    'eng',
-    {
-      tessedit_char_whitelist: '0123456789',
-      preserve_interword_spaces: 1
-    }
-  ).then(({ data: { text } }) => {
+  const {
+    data: { text }
+  } = await worker.recognize(canvas);
 
-    // Ambil hanya angka, minimal 10 digit
-    const nomor = text.replace(/\D/g, '').trim();
+  const nomor = text.replace(/\D/g, '').trim();
 
-    if (nomor.length < 10) {
-      resultDiv.innerText =
-        "❌ Nomor layanan tidak terbaca dengan benar.\n\nHasil OCR:\n" + text;
-      return;
-    }
-
+  if (nomor.length < 10) {
     resultDiv.innerText =
-      "📨 Nomor terbaca:\n" + nomor + "\n\n⏳ Mengirim ke sistem...";
+      "❌ Nomor tidak terbaca\n\nOCR:\n" + text;
+    return;
+  }
 
-    // === KIRIM KE APPS SCRIPT ===
-    fetch(
-      "https://script.google.com/macros/s/AKfycbwqemGySx5h5X1JKHlH_TKyd2PSr224MCKeYObWDuF8LL9Vt4oMq5Gyfuh2fIaZ9DMVwA/exec",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded"
-        },
-        body: "nomor=" + encodeURIComponent(nomor)
-      }
-    )
-    .then(res => res.json())
-    .then(r => {
-      if (r.found) {
-        resultDiv.innerText =
-          "✅ DITEMUKAN\nStatus berhasil diperbarui di spreadsheet.";
-      } else {
-        resultDiv.innerText =
-          "❌ TIDAK DITEMUKAN\nNomor tidak ada di batch manapun.";
-      }
-    })
-    .catch(err => {
-      resultDiv.innerText = "❌ Gagal mengirim ke server.";
-      console.error(err);
-    });
+  resultDiv.innerText =
+    "📨 Nomor terbaca:\n" + nomor + "\n\n⏳ Mengirim ke sistem...";
 
+  fetch(
+    "https://script.google.com/macros/s/AKfycbyEzNfSSSgMabfvACFwwkHK9uk6gf1L6xwVwMvPCnQaFJNJfXKEEkeeVcsnV57Xpitpxg/exec",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded"
+      },
+      body: "nomor=" + encodeURIComponent(nomor)
+    }
+  )
+  .then(res => res.json())
+  .then(r => {
+    resultDiv.innerText =
+      r.found
+        ? "✅ DITEMUKAN\nStatus diperbarui"
+        : "❌ TIDAK DITEMUKAN";
+  })
+  .catch(() => {
+    resultDiv.innerText = "❌ Gagal mengirim ke server";
   });
 }
 </script>
