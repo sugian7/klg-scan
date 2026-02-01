@@ -2,140 +2,215 @@
 <html lang="id">
 <head>
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>KLG – Scan & Verifikasi</title>
+<title>Verifikasi Kartu Layanan Gratis</title>
 
 <script src="https://unpkg.com/tesseract.js@4.0.2/dist/tesseract.min.js"></script>
 
 <style>
-body {
-  font-family: Arial, sans-serif;
-  padding: 14px;
-  background: #f4f6f8;
+:root {
+  --primary: #1f4fd8;
+  --secondary: #6b7280;
+  --success: #1b7f3b;
+  --border: #d1d5db;
+  --bg: #f3f4f6;
+  --text: #111827;
 }
 
-h2 { margin: 0 0 6px 0; }
-.step {
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 16px;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+
+/* HEADER */
+.header {
+  margin-bottom: 14px;
+}
+.header h1 {
+  font-size: 20px;
+  margin: 0;
+}
+.header p {
+  margin: 4px 0 0 0;
   font-size: 14px;
-  color: #555;
-  margin-bottom: 10px;
+  color: #4b5563;
+}
+
+/* CARD */
+.card {
+  background: #fff;
+  border-radius: 14px;
+  padding: 14px;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+  margin-bottom: 14px;
 }
 
 /* CAMERA */
 .camera-box {
   position: relative;
-  width: 100%;
-  max-width: 420px;
-  margin: auto;
-  border-radius: 14px;
+  border-radius: 12px;
   overflow: hidden;
   background: #000;
 }
-video { width: 100%; display: block; }
-
-/* FRAME */
+video {
+  width: 100%;
+  display: block;
+}
 .overlay {
   position: absolute;
-  left: 6%;
-  top: 58%;
-  width: 88%;
-  height: 24%;
-  border: 3px dashed #00ff00;
-  border-radius: 10px;
+  left: 8%;
+  top: 60%;
+  width: 84%;
+  height: 22%;
+  border: 2px dashed rgba(0,255,0,0.8);
+  border-radius: 8px;
   pointer-events: none;
 }
 
-/* BUTTON */
+/* BUTTONS */
+.actions {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+  margin-top: 12px;
+}
 button {
-  width: 100%;
-  padding: 16px;
-  font-size: 17px;
-  margin-top: 10px;
+  padding: 14px;
+  font-size: 15px;
   border-radius: 10px;
-  border: none;
-}
-.btn-primary { background: #1976d2; color: #fff; }
-.btn-secondary { background: #555; color: #fff; }
-.btn-success { background: #2e7d32; color: #fff; }
-
-/* PANEL */
-#panel, #preview, #manualSection {
-  margin-top: 14px;
+  border: 1px solid var(--border);
   background: #fff;
-  padding: 14px;
-  border-radius: 10px;
-  font-size: 16px;
-  white-space: pre-wrap;
+  cursor: pointer;
+}
+button.primary {
+  background: var(--primary);
+  color: #fff;
+  border-color: var(--primary);
+}
+button.secondary {
+  background: #fff;
+  color: var(--text);
+}
+button.success {
+  background: var(--success);
+  color: #fff;
+  border-color: var(--success);
 }
 
-#preview, #manualSection { display: none; }
+/* STATUS */
+.status {
+  font-size: 14px;
+  line-height: 1.5;
+}
 
-input {
+/* PREVIEW */
+.preview-row {
+  display: flex;
+  margin-bottom: 6px;
+}
+.preview-label {
+  width: 120px;
+  color: #6b7280;
+}
+.preview-value {
+  flex: 1;
+  font-weight: 500;
+}
+
+/* MANUAL */
+.manual input {
   width: 100%;
   padding: 14px;
-  font-size: 20px;
+  font-size: 18px;
   text-align: center;
+  border-radius: 10px;
+  border: 1px solid var(--border);
   margin-top: 8px;
-  border-radius: 8px;
-  border: 1px solid #ccc;
 }
 
-canvas { display: none; }
+.hidden {
+  display: none;
+}
+
+canvas {
+  display: none;
+}
 </style>
 </head>
 
 <body>
 
-<h2>Scan Nomor Layanan KLG</h2>
-<div class="step">
-1️⃣ Scan kartu atau input manual<br>
-2️⃣ Cek data<br>
-3️⃣ Konfirmasi
+<div class="header">
+  <h1>Verifikasi Kartu Layanan Gratis</h1>
+  <p>Transjakarta – Internal Verification Tool</p>
 </div>
 
-<div class="camera-box">
-  <video id="video" autoplay playsinline></video>
-  <div class="overlay"></div>
+<div class="card">
+  <div class="camera-box">
+    <video id="video" autoplay playsinline></video>
+    <div class="overlay"></div>
+  </div>
+
+  <div class="actions">
+    <button class="primary" onclick="ambilFoto()">Ambil Foto</button>
+    <button class="secondary" onclick="scan()">Scan Nomor</button>
+    <button class="secondary" onclick="bukaManual()">Input Manual</button>
+  </div>
+</div>
+
+<div class="card status" id="panel"></div>
+
+<div class="card hidden" id="preview">
+  <div class="preview-row">
+    <div class="preview-label">Nama</div>
+    <div class="preview-value" id="pNama">-</div>
+  </div>
+  <div class="preview-row">
+    <div class="preview-label">Nomor Layanan</div>
+    <div class="preview-value" id="pNomor">-</div>
+  </div>
+  <div class="preview-row">
+    <div class="preview-label">Kelurahan</div>
+    <div class="preview-value" id="pKel">-</div>
+  </div>
+  <div class="preview-row">
+    <div class="preview-label">Kecamatan</div>
+    <div class="preview-value" id="pKec">-</div>
+  </div>
+  <div class="preview-row">
+    <div class="preview-label">Kota</div>
+    <div class="preview-value" id="pKota">-</div>
+  </div>
+
+  <div class="actions">
+    <button class="success" onclick="ubahStatus()">Ubah Status</button>
+    <button class="secondary" onclick="resetAll()">Kembali</button>
+  </div>
+</div>
+
+<div class="card manual hidden" id="manualSection">
+  <div>Input Nomor Layanan</div>
+  <input id="manualInput" inputmode="numeric" placeholder="Ketik nomor layanan (angka saja)">
+  <div class="actions">
+    <button class="success" onclick="kirimManual()">Kirim</button>
+  </div>
 </div>
 
 <canvas id="canvas"></canvas>
 
-<button class="btn-primary" onclick="ambilFoto()">📸 Ambil Foto</button>
-<button class="btn-secondary" onclick="scan()">🔍 Scan Nomor</button>
-<button class="btn-secondary" onclick="bukaManual()">✍️ Input Manual</button>
-
-<div id="panel"></div>
-
-<!-- PREVIEW DATA -->
-<div id="preview">
-<b>Nama:</b> <span id="pNama">-</span><br>
-<b>Nomor Layanan:</b> <span id="pNomor">-</span><br>
-<b>Kelurahan:</b> <span id="pKel">-</span><br>
-<b>Kecamatan:</b> <span id="pKec">-</span><br>
-<b>Kota:</b> <span id="pKota">-</span><br><br>
-
-<button class="btn-success" onclick="ubahStatus()">✅ Ubah Status</button>
-<button class="btn-secondary" onclick="resetAll()">🔄 Kembali</button>
-</div>
-
-<!-- MANUAL INPUT -->
-<div id="manualSection">
-<b>✍️ Input Manual Nomor Layanan</b>
-<input
-  id="manualInput"
-  inputmode="numeric"
-  placeholder="Ketik nomor layanan (hanya angka)"
-/>
-<button class="btn-success" onclick="kirimManual()">✅ Kirim</button>
-</div>
-
 <script>
-/* ================= KONFIG ================= */
-const API_URL =
-"https://script.google.com/macros/s/AKfycbwJidSxMP_M7EMmNzszo-qhermEXEdxeW0O-ePyMoNEopAoMh46Gy5PboCWxwogqvR7IA/exec";
+const API_URL = "https://script.google.com/macros/s/AKfycbwJidSxMP_M7EMmNzszo-qhermEXEdxeW0O-ePyMoNEopAoMh46Gy5PboCWxwogqvR7IA/exec";
 
 const video = document.getElementById("video");
 const canvas = document.getElementById("canvas");
 const ctx = canvas.getContext("2d");
+
 const panel = document.getElementById("panel");
 const preview = document.getElementById("preview");
 const manualSection = document.getElementById("manualSection");
@@ -150,19 +225,18 @@ const pKota = document.getElementById("pKota");
 let worker;
 let foundMeta = null;
 
-/* ================= KAMERA ================= */
-navigator.mediaDevices.getUserMedia({
-  video: { facingMode: "environment" }
-}).then(stream => video.srcObject = stream);
+/* CAMERA */
+navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } })
+  .then(s => video.srcObject = s);
 
-/* ================= OCR INIT ================= */
+/* OCR */
 (async () => {
   worker = await Tesseract.createWorker();
   await worker.loadLanguage("eng");
   await worker.initialize("eng");
 })();
 
-/* ================= FOTO ================= */
+/* FOTO */
 function ambilFoto() {
   const w = video.videoWidth;
   const h = video.videoHeight;
@@ -177,36 +251,35 @@ function ambilFoto() {
   ctx.imageSmoothingEnabled = false;
 
   ctx.drawImage(video, cropX, cropY, cropW, cropH, 0, 0, canvas.width, canvas.height);
-  panel.innerText = "📸 Foto diambil. Silakan scan.";
+  panel.innerText = "Foto diambil. Silakan lakukan pemindaian.";
 }
 
-/* ================= SCAN OCR ================= */
+/* SCAN */
 async function scan() {
-  panel.innerText = "🔄 Membaca nomor layanan...";
-  preview.style.display = "none";
-  manualSection.style.display = "none";
+  panel.innerText = "Membaca nomor layanan...";
+  preview.classList.add("hidden");
+  manualSection.classList.add("hidden");
 
   const { data:{ text }} = await worker.recognize(canvas);
   const digits = text.replace(/\D/g, "");
 
   if (!digits.startsWith("1") || digits.length < 8) {
-    panel.innerText = "❌ OCR tidak stabil. Gunakan input manual.";
+    panel.innerText = "Nomor tidak terbaca dengan baik. Gunakan input manual.";
     return;
   }
 
   kirimKeBackend(digits);
 }
 
-/* ================= BUKA MANUAL ================= */
+/* MANUAL */
 function bukaManual() {
-  preview.style.display = "none";
-  panel.innerText = "✍️ Silakan input nomor layanan secara manual.";
-  manualSection.style.display = "block";
+  panel.innerText = "Masukkan nomor layanan secara manual.";
+  manualSection.classList.remove("hidden");
+  preview.classList.add("hidden");
   manualInput.value = "";
   manualInput.focus();
 }
 
-/* ================= MANUAL KIRIM ================= */
 function kirimManual() {
   const nomor = manualInput.value.replace(/\D/g, "");
   if (!nomor.startsWith("1") || nomor.length < 8) {
@@ -216,9 +289,9 @@ function kirimManual() {
   kirimKeBackend(nomor);
 }
 
-/* ================= KIRIM KE BACKEND ================= */
+/* BACKEND */
 function kirimKeBackend(nomor) {
-  panel.innerText = "⏳ Mencari data...";
+  panel.innerText = "Mencari data...";
 
   fetch(API_URL, {
     method: "POST",
@@ -227,49 +300,46 @@ function kirimKeBackend(nomor) {
   })
   .then(r => r.json())
   .then(showPreview)
-  .catch(() => panel.innerText = "❌ Gagal koneksi server");
+  .catch(() => panel.innerText = "Gagal menghubungi server.");
 }
 
-/* ================= PREVIEW ================= */
 function showPreview(r) {
   if (!r.found) {
-    panel.innerText = "❌ Nomor tidak ditemukan";
+    panel.innerText = "Data tidak ditemukan.";
     return;
   }
 
   foundMeta = r;
-
   pNama.innerText = r.nama;
   pNomor.innerText = r.nomor;
   pKel.innerText = r.kelurahan;
   pKec.innerText = r.kecamatan;
   pKota.innerText = r.kota;
 
-  panel.innerText = "✅ Data ditemukan. Silakan konfirmasi.";
-  preview.style.display = "block";
+  panel.innerText = "Data ditemukan. Silakan konfirmasi.";
+  preview.classList.remove("hidden");
 }
 
-/* ================= UPDATE STATUS ================= */
+/* UPDATE */
 function ubahStatus() {
   fetch(API_URL, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body:
-      "action=update&sheet=" + encodeURIComponent(foundMeta.sheet) +
-      "&row=" + encodeURIComponent(foundMeta.row)
+    body: "action=update&sheet=" + encodeURIComponent(foundMeta.sheet) +
+          "&row=" + encodeURIComponent(foundMeta.row)
   })
   .then(() => {
-    panel.innerText = "✅ Status berhasil diubah.";
-    preview.style.display = "none";
+    panel.innerText = "Status berhasil diperbarui.";
+    preview.classList.add("hidden");
   });
 }
 
 function resetAll() {
-  foundMeta = null;
   panel.innerText = "";
-  preview.style.display = "none";
-  manualSection.style.display = "none";
+  preview.classList.add("hidden");
+  manualSection.classList.add("hidden");
   manualInput.value = "";
+  foundMeta = null;
 }
 </script>
 
