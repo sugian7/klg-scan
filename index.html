@@ -4,7 +4,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Scan Nomor Layanan KLG</title>
 
-  <!-- OCR -->
+  <!-- Tesseract OCR -->
   <script src="https://unpkg.com/tesseract.js@4.0.2/dist/tesseract.min.js"></script>
 
   <style>
@@ -32,25 +32,35 @@ const canvas = document.getElementById("canvas");
 const ctx = canvas.getContext("2d");
 const resultDiv = document.getElementById("result");
 
-let worker = null;
+let worker;
 
-// Kamera
+// === AKTIFKAN KAMERA ===
 navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } })
   .then(stream => video.srcObject = stream)
   .catch(() => alert("Gagal akses kamera"));
 
-// Init OCR
+// === INIT OCR (DIKUNCI UNTUK ANGKA) ===
 (async () => {
-  worker = await Tesseract.createWorker();
+  worker = await Tesseract.createWorker({
+    logger: m => console.log(m)
+  });
+
   await worker.loadLanguage("eng");
   await worker.initialize("eng");
+
+  // 🔒 BATASI OCR HANYA ANGKA
+  await worker.setParameters({
+    tessedit_char_whitelist: "0123456789",
+    tessedit_pageseg_mode: Tesseract.PSM.SINGLE_LINE
+  });
 })();
 
-// Ambil foto + crop area nomor layanan
+// === AMBIL FOTO + CROP AREA NOMOR LAYANAN ===
 function ambilFoto() {
   const w = video.videoWidth;
   const h = video.videoHeight;
 
+  // Area bawah-kanan (nomor layanan)
   const cropX = w * 0.45;
   const cropY = h * 0.55;
   const cropW = w * 0.5;
@@ -59,22 +69,24 @@ function ambilFoto() {
   canvas.width = cropW;
   canvas.height = cropH;
 
-  ctx.drawImage(video, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+  ctx.drawImage(
+    video,
+    cropX, cropY, cropW, cropH,
+    0, 0, cropW, cropH
+  );
 
-  // grayscale
-  const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-  for (let i = 0; i < imgData.data.length; i += 4) {
-    const avg = (imgData.data[i] + imgData.data[i+1] + imgData.data[i+2]) / 3;
-    imgData.data[i] = avg;
-    imgData.data[i+1] = avg;
-    imgData.data[i+2] = avg;
+  // Grayscale (tingkatkan kontras)
+  const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  for (let i = 0; i < img.data.length; i += 4) {
+    const g = (img.data[i] + img.data[i+1] + img.data[i+2]) / 3;
+    img.data[i] = img.data[i+1] = img.data[i+2] = g;
   }
-  ctx.putImageData(imgData, 0, 0);
+  ctx.putImageData(img, 0, 0);
 
   resultDiv.innerText = "📸 Foto diambil";
 }
 
-// OCR + kirim ke server
+// === OCR → HASIL PASTI ANGKA ===
 async function scan() {
   if (!worker) {
     resultDiv.innerText = "❌ OCR belum siap";
@@ -85,36 +97,24 @@ async function scan() {
 
   const { data: { text } } = await worker.recognize(canvas);
 
+  // 🔐 FINAL FILTER: HANYA ANGKA
   let angka = text.replace(/\D/g, "");
+
+  // 🔑 NORMALISASI: nomor layanan selalu diawali "1"
   const idx = angka.indexOf("1");
   if (idx !== -1) angka = angka.substring(idx);
 
+  // Validasi minimum panjang
   if (angka.length < 14) {
-    resultDiv.innerText = "❌ Nomor tidak valid\n\nOCR:\n" + text;
+    resultDiv.innerText =
+      "❌ Nomor tidak valid\n\nOCR RAW:\n" + text;
     return;
   }
 
   resultDiv.innerText =
-    "📨 Nomor terbaca:\n" + angka + "\n\n⏳ Mengirim ke sistem...";
+    "📨 Nomor terbaca (VALID):\n" + angka;
 
-  fetch(
-    "https://script.google.com/macros/s/AKfycbyEzNfSSSgMabfvACFwwkHK9uk6gf1L6xwVwMvPCnQaFJNJfXKEEkeeVcsnV57Xpitpxg/exec",
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: "nomor=" + encodeURIComponent(angka)
-    }
-  )
-  .then(res => res.json())
-  .then(r => {
-    resultDiv.innerText =
-      r.found
-        ? "✅ DITEMUKAN\nStatus diperbarui di spreadsheet."
-        : "❌ TIDAK DITEMUKAN\nNomor tidak ada di batch.";
-  })
-  .catch(err => {
-    resultDiv.innerText = "❌ Gagal mengirim ke server\n" + err;
-  });
+  // 👉 di sini kamu bisa langsung kirim ke backend
 }
 </script>
 
