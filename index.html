@@ -7,23 +7,50 @@
   <script src="https://unpkg.com/tesseract.js@4.0.2/dist/tesseract.min.js"></script>
 
   <style>
-    body { font-family: Arial, sans-serif; padding: 12px; }
-    video { width: 100%; border: 1px solid #ccc; margin-bottom: 8px; }
-    button { padding: 10px; margin-right: 6px; font-size: 14px; }
-    #result { margin-top: 10px; font-weight: bold; white-space: pre-wrap; }
+    body { font-family: Arial, sans-serif; margin: 0; background: #000; }
+    #container { position: relative; }
+    video { width: 100%; }
+    canvas { display: none; }
+
+    /* OVERLAY */
+    #overlay {
+      position: absolute;
+      border: 3px dashed #00ff00;
+      width: 70%;
+      height: 20%;
+      left: 15%;
+      top: 60%;
+      box-sizing: border-box;
+      pointer-events: none;
+    }
+
+    #hint {
+      position: absolute;
+      top: 54%;
+      width: 100%;
+      text-align: center;
+      color: #00ff00;
+      font-weight: bold;
+      text-shadow: 0 0 4px #000;
+    }
+
+    #result {
+      background: #fff;
+      padding: 12px;
+      font-weight: bold;
+    }
   </style>
 </head>
 <body>
 
-<h3>Scan Nomor Layanan KLG</h3>
+<div id="container">
+  <video id="video" autoplay playsinline></video>
+  <div id="overlay"></div>
+  <div id="hint">POSISIKAN NOMOR LAYANAN DI DALAM KOTAK</div>
+</div>
 
-<video id="video" autoplay playsinline></video>
-<canvas id="canvas" style="display:none;"></canvas>
-
-<button onclick="ambilFoto()">📸 Ambil Foto</button>
-<button onclick="scan()">🔍 Scan</button>
-
-<div id="result"></div>
+<canvas id="canvas"></canvas>
+<div id="result">⏳ Menunggu kartu stabil…</div>
 
 <script>
 const video = document.getElementById("video");
@@ -32,100 +59,118 @@ const ctx = canvas.getContext("2d");
 const resultDiv = document.getElementById("result");
 
 let worker;
+let lastFrame = null;
+let stableCount = 0;
+let scanning = false;
 
-// ===================
-// AKSES KAMERA
-// ===================
+/* =====================
+   AKSES KAMERA
+===================== */
 navigator.mediaDevices.getUserMedia({
   video: { facingMode: "environment" }
 })
 .then(stream => video.srcObject = stream)
-.catch(() => alert("❌ Gagal akses kamera"));
+.catch(() => alert("Gagal akses kamera"));
 
-// ===================
-// INIT OCR
-// ===================
+/* =====================
+   INIT OCR
+===================== */
 (async () => {
   worker = await Tesseract.createWorker();
   await worker.loadLanguage("eng");
   await worker.initialize("eng");
 })();
 
-// ===================
-// AMBIL FOTO (CROP AMAN)
-// ===================
-function ambilFoto() {
+/* =====================
+   CEK STABIL FRAME
+===================== */
+function frameDifference(a, b) {
+  let diff = 0;
+  for (let i = 0; i < a.data.length; i += 4) {
+    diff += Math.abs(a.data[i] - b.data[i]);
+  }
+  return diff / a.data.length;
+}
+
+/* =====================
+   LOOP AUTO-SCAN
+===================== */
+setInterval(async () => {
+  if (scanning || !video.videoWidth) return;
+
   const w = video.videoWidth;
   const h = video.videoHeight;
 
-  // Area LEBIH BESAR & AMAN
-  const cropX = w * 0.35;
-  const cropY = h * 0.50;
-  const cropW = w * 0.6;
-  const cropH = h * 0.35;
+  const cropX = w * 0.15;
+  const cropY = h * 0.60;
+  const cropW = w * 0.70;
+  const cropH = h * 0.20;
 
   canvas.width = cropW;
   canvas.height = cropH;
+  ctx.drawImage(video, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
 
-  ctx.drawImage(
-    video,
-    cropX, cropY, cropW, cropH,
-    0, 0, cropW, cropH
-  );
+  const img = ctx.getImageData(0, 0, cropW, cropH);
 
-  resultDiv.innerText = "📸 Foto diambil";
-}
-
-// ===================
-// OCR + VALIDASI POLA
-// ===================
-async function scan() {
-  if (!worker) {
-    resultDiv.innerText = "❌ OCR belum siap";
-    return;
+  if (lastFrame) {
+    const diff = frameDifference(img, lastFrame);
+    if (diff < 2) {
+      stableCount++;
+    } else {
+      stableCount = 0;
+    }
   }
 
-  resultDiv.innerText = "🔄 Membaca nomor layanan...";
+  lastFrame = img;
+
+  if (stableCount >= 3) {
+    scanning = true;
+    stableCount = 0;
+    autoScan(img);
+  }
+
+}, 300);
+
+/* =====================
+   OCR + VALIDASI POLA
+===================== */
+async function autoScan(imageData) {
+  resultDiv.innerText = "🔍 Membaca nomor layanan…";
 
   const { data: { text } } = await worker.recognize(canvas);
 
-  // Ambil SEMUA angka
-  const angka = text.replace(/\D/g, "");
-
-  // Cari nomor layanan berbasis pola
-  const match = angka.match(/114102\d{9}/);
+  const digits = text.replace(/\D/g, "");
+  const match = digits.match(/114102\d{9}/);
 
   if (!match) {
-    resultDiv.innerText =
-      "❌ Nomor layanan tidak valid\n\nOCR RAW:\n" + text;
+    resultDiv.innerText = "❌ Tidak valid, geser kartu sedikit…";
+    scanning = false;
     return;
   }
 
-  const nomorFinal = match[0];
+  const nomor = match[0];
+  resultDiv.innerText = "📨 " + nomor + "\n⏳ Mengirim…";
 
-  resultDiv.innerText =
-    "📨 Nomor FINAL:\n" + nomorFinal + "\n\n⏳ Mengirim ke sistem...";
-
-  // ===================
-  // KIRIM KE BACKEND
-  // ===================
   fetch(
     "https://script.google.com/macros/s/AKfycbyEzNfSSSgMabfvACFwwkHK9uk6gf1L6xwVwMvPCnQaFJNJfXKEEkeeVcsnV57Xpitpxg/exec",
     {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: "nomor=" + encodeURIComponent(nomorFinal)
+      body: "nomor=" + encodeURIComponent(nomor)
     }
   )
-  .then(res => res.json())
-  .then(r => {
+  .then(r => r.json())
+  .then(j => {
     resultDiv.innerText =
-      r.found
+      j.found
         ? "✅ DITEMUKAN\nStatus diperbarui"
-        : "❌ TIDAK DITEMUKAN\nNomor tidak ada di batch";
+        : "❌ Tidak ditemukan";
   })
-  .catch(err => {
-    resultDiv.innerText = "❌ Gagal mengirim ke server\n" + err;
+  .catch(() => {
+    resultDiv.innerText = "❌ Gagal kirim";
+  })
+  .finally(() => {
+    setTimeout(() => scanning = false, 2000);
   });
 }
 </script>
