@@ -54,6 +54,19 @@ button.secondary { background:#555 }
   font-weight:bold;
 }
 
+#manualBox {
+  display:none;
+  margin-top:10px;
+}
+
+input {
+  width:100%;
+  padding:14px;
+  font-size:18px;
+  text-align:center;
+  margin-top:6px;
+}
+
 canvas { display:none }
 </style>
 </head>
@@ -61,7 +74,7 @@ canvas { display:none }
 <body>
 
 <h3>Scan Nomor Layanan KLG</h3>
-<div class="hint">Pastikan SELURUH nomor masuk kotak & kartu sangat dekat</div>
+<div class="hint">OCR akan membaca depan nomor, lanjutkan isi digit akhir</div>
 
 <div class="camera-box">
   <video id="video" autoplay playsinline></video>
@@ -73,6 +86,12 @@ canvas { display:none }
 <button onclick="ambilFoto()">📸 Ambil Foto</button>
 <button class="secondary" onclick="scan()">🔍 Scan</button>
 
+<div id="manualBox">
+  <div>✍️ Masukkan digit terakhir (3–4 angka):</div>
+  <input id="manualInput" inputmode="numeric" pattern="[0-9]*" />
+  <button onclick="gabungkan()">✅ Kirim</button>
+</div>
+
 <div id="panel"></div>
 
 <script>
@@ -80,8 +99,11 @@ const video = document.getElementById("video");
 const canvas = document.getElementById("canvas");
 const ctx = canvas.getContext("2d");
 const panel = document.getElementById("panel");
+const manualBox = document.getElementById("manualBox");
+const manualInput = document.getElementById("manualInput");
 
 let worker;
+let hasilDepan = "";
 
 // ================= KAMERA =================
 navigator.mediaDevices.getUserMedia({
@@ -92,14 +114,12 @@ navigator.mediaDevices.getUserMedia({
 
 // ================= OCR =================
 (async()=>{
-  worker = await Tesseract.createWorker({
-    logger:()=>{}
-  });
+  worker = await Tesseract.createWorker();
   await worker.loadLanguage("eng");
   await worker.initialize("eng");
 })();
 
-// ================= FOTO + UPSCALE =================
+// ================= FOTO =================
 function ambilFoto(){
   const w = video.videoWidth;
   const h = video.videoHeight;
@@ -109,60 +129,62 @@ function ambilFoto(){
   const cropW = w * 0.90;
   const cropH = h * 0.28;
 
-  // 🔥 UPSCALE 2x (KUNCI ANGKA BELAKANG)
   canvas.width  = cropW * 2;
   canvas.height = cropH * 2;
-
   ctx.imageSmoothingEnabled = false;
 
-  ctx.drawImage(
-    video,
-    cropX, cropY, cropW, cropH,
-    0, 0, canvas.width, canvas.height
-  );
-
-  panel.innerText = "📸 Foto diambil (resolusi ditingkatkan)";
+  ctx.drawImage(video, cropX, cropY, cropW, cropH, 0, 0, canvas.width, canvas.height);
+  panel.innerText = "📸 Foto diambil";
 }
 
-// ================= PARSING ANGKA =================
-function cariNomor(raw){
-  const d = raw.replace(/\D/g,"");
-
-  // sliding window
-  for(let i=0;i<d.length;i++){
-    for(let l=10;l<=18;l++){
-      const p = d.substr(i,l);
-      if(/^1\d+$/.test(p)) return p;
-    }
-  }
-  return null;
-}
-
-// ================= SCAN =================
+// ================= SCAN OCR =================
 async function scan(){
-  if(!worker){
-    panel.innerText="❌ OCR belum siap";
-    return;
-  }
-
-  panel.innerText="🔄 Membaca nomor...";
-
+  panel.innerText = "🔄 Membaca nomor...";
   const { data:{ text }} = await worker.recognize(canvas);
-  const nomor = cariNomor(text);
 
-  if(!nomor){
-    panel.innerText="❌ Gagal\n\nOCR RAW:\n"+text;
+  const digits = text.replace(/\D/g,"");
+
+  // Ambil bagian DEPAN yang stabil
+  const match = digits.match(/1\d{6,10}/);
+
+  if(!match){
+    panel.innerText = "❌ OCR gagal total\n\nRAW:\n"+text;
     return;
   }
 
-  panel.innerText="📨 Nomor:\n"+nomor+"\n\n⏳ Mengirim...";
+  hasilDepan = match[0];
+  panel.innerText =
+    "📄 Nomor depan terbaca:\n" +
+    hasilDepan +
+    "\n\n✍️ Silakan isi digit terakhir";
+
+  manualBox.style.display = "block";
+  manualInput.value = "";
+  manualInput.focus();
+}
+
+// ================= GABUNG + KIRIM =================
+function gabungkan(){
+  const belakang = manualInput.value.replace(/\D/g,"");
+
+  if(belakang.length < 2){
+    alert("Digit akhir terlalu pendek");
+    return;
+  }
+
+  const nomorFinal = hasilDepan + belakang;
+
+  panel.innerText =
+    "📨 Nomor lengkap:\n" +
+    nomorFinal +
+    "\n\n⏳ Mengirim...";
 
   fetch(
     "https://script.google.com/macros/s/AKfycbzc00z8O_0hJ3HYYyLdSZMLIxmK_BdjjCzueBdfVxEUYFX92VNLb15kd6AM_fid0mgdNQ/exec",
     {
       method:"POST",
       headers:{ "Content-Type":"application/x-www-form-urlencoded" },
-      body:"nomor="+encodeURIComponent(nomor)
+      body:"nomor="+encodeURIComponent(nomorFinal)
     }
   )
   .then(r=>r.json())
@@ -170,6 +192,7 @@ async function scan(){
     panel.innerText = r.found
       ? "✅ DITEMUKAN\nStatus diperbarui"
       : "❌ TIDAK DITEMUKAN";
+    manualBox.style.display="none";
   })
   .catch(e=>{
     panel.innerText="❌ Server error\n"+e;
