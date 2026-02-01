@@ -2,7 +2,7 @@
 <html lang="id">
 <head>
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>KLG Scanner</title>
+<title>KLG Scanner (OCR Tap)</title>
 
 <script src="https://unpkg.com/tesseract.js@4.0.2/dist/tesseract.min.js"></script>
 
@@ -10,20 +10,20 @@
 body { margin:0; font-family:Arial; background:#000; }
 #video { width:100%; }
 #overlay {
-  position:absolute;
+  position: absolute;
   border:3px dashed #00ff00;
   border-radius:8px;
   width:70%;
   height:16%;
   left:15%;
   top:52%;
-  pointer-events:none;
+  pointer-events: none;
 }
 #panel {
   background:#fff;
   padding:12px;
-  text-align:center;
-  font-weight:bold;
+  text-align: center;
+  font-weight: bold;
 }
 button {
   width:100%;
@@ -32,7 +32,7 @@ button {
   margin-top:8px;
 }
 #verifyMode {
-  display:none;
+  display: none;
   background:#fff;
   padding:16px;
 }
@@ -42,6 +42,7 @@ button {
 
 <body>
 
+<!-- MODE SCAN -->
 <div id="scanMode">
   <video id="video" autoplay playsinline></video>
   <div id="overlay"></div>
@@ -49,6 +50,7 @@ button {
   <button onclick="ambilFoto()">📸 AMBIL FOTO</button>
 </div>
 
+<!-- MODE VERIFIKASI -->
 <div id="verifyMode">
   <div><span class="label">Nama:</span> <span id="vNama">-</span></div>
   <div><span class="label">Nomor Layanan:</span> <span id="vNomor">-</span></div>
@@ -73,19 +75,33 @@ const panel = document.getElementById("panel");
 
 let worker;
 let foundMeta = null;
+let track = null;
 
-// Kamera
+// Kamera (paksa resolusi tinggi + coba torch)
 navigator.mediaDevices.getUserMedia({
-  video: { facingMode: "environment" }
+  video: {
+    facingMode: "environment",
+    width: { ideal: 1920 },
+    height: { ideal: 1080 }
+  }
 }).then(stream => {
   video.srcObject = stream;
+  track = stream.getVideoTracks()[0];
+  // coba nyalakan torch (jika didukung)
+  try {
+    track.applyConstraints({ advanced: [{ torch: true }] });
+  } catch(e){}
 });
 
-// OCR
-(async function initOCR(){
-  worker = await Tesseract.createWorker({ logger: function(){} });
+// OCR init
+(async()=>{
+  worker = await Tesseract.createWorker({ logger:()=>{} });
   await worker.loadLanguage("eng");
   await worker.initialize("eng");
+  await worker.setParameters({
+    tessedit_char_whitelist: "0123456789",
+    tessedit_pageseg_mode: Tesseract.PSM.SINGLE_LINE
+  });
 })();
 
 async function ambilFoto(){
@@ -94,26 +110,29 @@ async function ambilFoto(){
   const w = video.videoWidth;
   const h = video.videoHeight;
 
-  canvas.width  = w * 0.7;
-  canvas.height = h * 0.16;
+  // crop sesuai overlay
+  canvas.width  = Math.floor(w * 0.7);
+  canvas.height = Math.floor(h * 0.16);
 
   ctx.drawImage(
     video,
-    w * 0.15,
-    h * 0.52,
-    w * 0.7,
-    h * 0.16,
+    Math.floor(w * 0.15),
+    Math.floor(h * 0.52),
+    Math.floor(w * 0.7),
+    Math.floor(h * 0.16),
     0, 0,
     canvas.width,
     canvas.height
   );
 
-  const result = await worker.recognize(canvas);
-  const digits = result.data.text.replace(/\D/g, "");
+  const { data:{ text } } = await worker.recognize(canvas);
+
+  // ambil semua angka → validasi pola
+  const digits = text.replace(/\D/g,"");
   const match = digits.match(/114102\d{9}/);
 
   if (!match) {
-    panel.innerText = "❌ Nomor tidak terbaca. Coba ulang.";
+    panel.innerText = "❌ Nomor belum terbaca jelas. Foto ulang.";
     return;
   }
 
@@ -121,21 +140,19 @@ async function ambilFoto(){
 
   const options = {
     method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded"
-    },
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: "action=scan&nomor=" + encodeURIComponent(match[0])
   };
 
   fetch(API_URL, options)
-    .then(res => res.json())
-    .then(data => {
-      if (!data.found) {
+    .then(r => r.json())
+    .then(d => {
+      if (!d.found) {
         panel.innerText = "❌ Nomor tidak ditemukan";
         return;
       }
-      foundMeta = data;
-      tampilkan(data);
+      foundMeta = d;
+      tampilkan(d);
     });
 }
 
@@ -153,11 +170,10 @@ function tampilkan(d){
 function ubahStatus(){
   const options = {
     method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded"
-    },
-    body: "action=update&sheet=" + encodeURIComponent(foundMeta.sheet) +
-          "&row=" + encodeURIComponent(foundMeta.row)
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body:
+      "action=update&sheet=" + encodeURIComponent(foundMeta.sheet) +
+      "&row=" + encodeURIComponent(foundMeta.row)
   };
 
   fetch(API_URL, options)
