@@ -4,7 +4,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Scan Nomor Layanan KLG</title>
 
-  <!-- ✅ TESSERACT CDN (STABIL) -->
   <script src="https://unpkg.com/tesseract.js@4.0.2/dist/tesseract.min.js"></script>
 
   <style>
@@ -57,24 +56,15 @@ navigator.mediaDevices.getUserMedia({
   video.srcObject = stream;
 })
 .catch(() => {
-  alert("Gagal akses kamera. Aktifkan izin kamera.");
+  alert("Gagal akses kamera");
 });
 
-// === INIT TESSERACT WORKER (WAJIB) ===
+// === INIT OCR ===
 async function initOCR() {
-  if (!window.Tesseract) {
-    alert("Library OCR gagal dimuat");
-    return;
-  }
-
-  worker = await Tesseract.createWorker({
-    logger: m => console.log(m)
-  });
-
+  worker = await Tesseract.createWorker();
   await worker.loadLanguage('eng');
   await worker.initialize('eng');
 }
-
 initOCR();
 
 // === AMBIL FOTO + CROP ===
@@ -90,11 +80,7 @@ function ambilFoto() {
   canvas.width = cropW;
   canvas.height = cropH;
 
-  ctx.drawImage(
-    video,
-    cropX, cropY, cropW, cropH,
-    0, 0, cropW, cropH
-  );
+  ctx.drawImage(video, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
 
   // grayscale
   const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
@@ -109,7 +95,7 @@ function ambilFoto() {
   resultDiv.innerText = "📸 Foto diambil";
 }
 
-// === OCR + KIRIM KE BACKEND ===
+// === OCR + NORMALISASI NOMOR LAYANAN ===
 async function scan() {
   if (!worker) {
     resultDiv.innerText = "❌ OCR belum siap";
@@ -118,29 +104,34 @@ async function scan() {
 
   resultDiv.innerText = "🔄 Membaca nomor layanan...";
 
-  const {
-    data: { text }
-  } = await worker.recognize(canvas);
+  const { data: { text } } = await worker.recognize(canvas);
 
-  const nomor = text.replace(/\D/g, '').trim();
+  // Ambil semua angka
+  let angka = text.replace(/\D/g, '');
 
-  if (nomor.length < 10) {
+  // 🔑 NORMALISASI:
+  // potong mulai dari digit '1' pertama
+  const idx = angka.indexOf('1');
+  if (idx !== -1) {
+    angka = angka.substring(idx);
+  }
+
+  // validasi panjang
+  if (angka.length < 14) {
     resultDiv.innerText =
-      "❌ Nomor tidak terbaca\n\nOCR:\n" + text;
+      "❌ Nomor tidak valid\n\nOCR:\n" + text;
     return;
   }
 
   resultDiv.innerText =
-    "📨 Nomor terbaca:\n" + nomor + "\n\n⏳ Mengirim ke sistem...";
+    "📨 Nomor terbaca:\n" + angka + "\n\n⏳ Mengirim ke sistem...";
 
   fetch(
     "https://script.google.com/macros/s/AKfycbyEzNfSSSgMabfvACFwwkHK9uk6gf1L6xwVwMvPCnQaFJNJfXKEEkeeVcsnV57Xpitpxg/exec",
     {
       method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded"
-      },
-      body: "nomor=" + encodeURIComponent(nomor)
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: "nomor=" + encodeURIComponent(angka)
     }
   )
   .then(res => res.json())
