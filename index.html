@@ -7,21 +7,33 @@
 <script src="https://unpkg.com/tesseract.js@4.0.2/dist/tesseract.min.js"></script>
 
 <style>
-body { font-family: Arial; padding: 12px; }
-video { width: 100%; border: 1px solid #ccc; }
-button { width: 100%; padding: 14px; margin-top: 8px; font-size: 16px; }
-#panel { margin-top: 12px; background: #f5f5f5; padding: 12px; }
+body { font-family: Arial, sans-serif; padding: 12px; }
+video { width: 100%; border: 2px solid #333; }
+button {
+  width: 100%;
+  padding: 16px;
+  margin-top: 10px;
+  font-size: 18px;
+}
+#panel {
+  margin-top: 14px;
+  padding: 14px;
+  background: #f2f2f2;
+  border-radius: 8px;
+  font-size: 16px;
+}
 </style>
 </head>
 <body>
 
 <h3>Scan Nomor Layanan KLG</h3>
+<p><b>ARAHKAN NOMOR → DEKATKAN → AMBIL FOTO</b></p>
 
 <video id="video" autoplay playsinline></video>
 <canvas id="canvas" style="display:none;"></canvas>
 
 <button onclick="ambilFoto()">📸 Ambil Foto</button>
-<button onclick="scan()">🔍 Scan</button>
+<button onclick="scan()">🔍 Scan Nomor</button>
 
 <div id="panel"></div>
 
@@ -34,60 +46,120 @@ const panel = document.getElementById("panel");
 let worker;
 let foundMeta = null;
 
-// ===== KAMERA =====
-navigator.mediaDevices.getUserMedia({ video:{ facingMode:"environment" } })
-.then(s => video.srcObject = s);
+// =====================
+// KAMERA
+// =====================
+navigator.mediaDevices.getUserMedia({
+  video: { facingMode: "environment", width: { ideal: 1280 } }
+}).then(stream => video.srcObject = stream);
 
-// ===== OCR =====
-(async()=>{
-  worker = await Tesseract.createWorker();
+// =====================
+// INIT OCR
+// =====================
+(async () => {
+  worker = await Tesseract.createWorker({
+    logger: () => {}
+  });
   await worker.loadLanguage("eng");
   await worker.initialize("eng");
+
+  // 🔒 KUNCI OCR HANYA ANGKA & 1 BARIS
+  await worker.setParameters({
+    tessedit_char_whitelist: "0123456789",
+    tessedit_pageseg_mode: 7
+  });
 })();
 
-function ambilFoto(){
+// =====================
+// AMBIL FOTO (SANGAT FOKUS)
+// =====================
+function ambilFoto() {
   const w = video.videoWidth;
   const h = video.videoHeight;
 
-  canvas.width = w * 0.6;
-  canvas.height = h * 0.35;
+  // 🔥 AREA SEMPIT KHUSUS ANGKA
+  const cropX = w * 0.42;
+  const cropY = h * 0.58;
+  const cropW = w * 0.50;
+  const cropH = h * 0.18;
 
-  ctx.drawImage(video, w*0.35, h*0.5, w*0.6, h*0.35, 0,0, canvas.width, canvas.height);
-  panel.innerText = "📸 Foto diambil";
+  canvas.width = cropW;
+  canvas.height = cropH;
+
+  ctx.drawImage(video, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+
+  // =====================
+  // PREPROCESSING KERAS
+  // =====================
+  const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  for (let i = 0; i < img.data.length; i += 4) {
+    const gray = (img.data[i] + img.data[i+1] + img.data[i+2]) / 3;
+    const bw = gray > 150 ? 255 : 0;   // HITAM PUTIH
+    img.data[i] = bw;
+    img.data[i+1] = bw;
+    img.data[i+2] = bw;
+  }
+  ctx.putImageData(img, 0, 0);
+
+  panel.innerText = "📸 Foto diambil (fokus nomor)";
 }
 
-async function scan(){
-  panel.innerText = "🔄 Membaca...";
+// =====================
+// SCAN
+// =====================
+async function scan() {
+  panel.innerText = "🔄 Membaca nomor layanan...";
+
   const { data:{ text }} = await worker.recognize(canvas);
 
-  const angka = text.replace(/\D/g,"");
+  // Bersihkan OCR
+  let angka = text
+    .replace(/[^\d]/g, "")
+    .replace(/8/g,"0")  // koreksi OCR umum
+    .replace(/6/g,"0");
+
+  // VALIDASI KERAS
   const match = angka.match(/114102\d{9}/);
 
-  if(!match){
-    panel.innerText = "❌ Nomor tidak valid\n\nOCR:\n"+text;
+  if (!match) {
+    panel.innerText =
+      "❌ GAGAL BACA\n\n" +
+      "Pastikan:\n" +
+      "• Nomor dekat kamera\n" +
+      "• Cahaya terang\n" +
+      "• Tidak miring\n\n" +
+      "OCR RAW:\n" + text;
     return;
   }
 
-  const nomor = match[0];
+  const nomorFinal = match[0];
 
-  fetch("PASTE_URL_WEBAPP_KAMU",{
-    method:"POST",
-    headers:{ "Content-Type":"application/x-www-form-urlencoded" },
-    body:"action=scan&nomor="+encodeURIComponent(nomor)
-  })
-  .then(r=>r.json())
-  .then(showData);
-}
+  panel.innerText =
+    "📨 Nomor terbaca:\n" +
+    nomorFinal +
+    "\n\n⏳ Mengirim ke sistem...";
 
-function showData(r){
-  if(!r.found){
-    panel.innerText="❌ Nomor tidak ditemukan";
-    return;
-  }
+  // =====================
+  // KIRIM KE BACKEND
+  // =====================
+  fetch(
+    "https://script.google.com/macros/s/AKfycbzc00z8O_0hJ3HYYyLdSZMLIxmK_BdjjCzueBdfVxEUYFX92VNLb15kd6AM_fid0mgdNQ/exec",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: "action=scan&nomor=" + encodeURIComponent(nomorFinal)
+    }
+  )
+  .then(r => r.json())
+  .then(r => {
+    if (!r.found) {
+      panel.innerText = "❌ Nomor tidak ada di batch";
+      return;
+    }
 
-  foundMeta = r;
+    foundMeta = r;
 
-  panel.innerHTML = `
+    panel.innerHTML = `
 <b>Nama:</b> ${r.nama}<br>
 <b>Nomor:</b> ${r.nomor}<br>
 <b>Kelurahan:</b> ${r.kelurahan}<br>
@@ -95,22 +167,26 @@ function showData(r){
 <b>Kota:</b> ${r.kota}<br><br>
 
 <button onclick="ubahStatus()">✅ Ubah Status</button>
-<button onclick="reset()">🔄 Kembali</button>
+<button onclick="resetScan()">🔄 Kembali</button>
 `;
+  });
 }
 
-function ubahStatus(){
-  fetch("PASTE_URL_WEBAPP_KAMU",{
-    method:"POST",
-    headers:{ "Content-Type":"application/x-www-form-urlencoded" },
-    body:`action=update&sheet=${foundMeta.sheet}&row=${foundMeta.row}`
-  })
-  .then(()=>panel.innerText="✅ Status berhasil diubah");
+// =====================
+function ubahStatus() {
+  fetch(
+    "https://script.google.com/macros/s/AKfycbzc00z8O_0hJ3HYYyLdSZMLIxmK_BdjjCzueBdfVxEUYFX92VNLb15kd6AM_fid0mgdNQ/exec",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: `action=update&sheet=${foundMeta.sheet}&row=${foundMeta.row}`
+    }
+  ).then(() => panel.innerText = "✅ Status berhasil diubah");
 }
 
-function reset(){
-  panel.innerText="";
-  foundMeta=null;
+function resetScan(){
+  panel.innerText = "";
+  foundMeta = null;
 }
 </script>
 
