@@ -7,14 +7,37 @@
 <script src="https://unpkg.com/tesseract.js@4.0.2/dist/tesseract.min.js"></script>
 
 <style>
-body { font-family: Arial, sans-serif; padding: 12px; }
-video { width: 100%; border: 2px solid #333; }
+body {
+  font-family: Arial, sans-serif;
+  padding: 12px;
+  background: #ffffff;
+}
+
+/* ===== KAMERA DIPENDEKKAN ===== */
+#cameraBox {
+  position: relative;
+  width: 100%;
+  height: 40vh;              /* ⬅️ TINGGI KAMERA DIKUNCI */
+  overflow: hidden;
+  border: 2px solid #333;
+  border-radius: 8px;
+  margin-bottom: 10px;
+}
+
+video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;         /* ⬅️ POTONG VISUAL SAJA */
+}
+
+/* ===== UI ===== */
 button {
   width: 100%;
   padding: 16px;
   margin-top: 10px;
   font-size: 18px;
 }
+
 #panel {
   margin-top: 14px;
   padding: 14px;
@@ -24,12 +47,17 @@ button {
 }
 </style>
 </head>
+
 <body>
 
 <h3>Scan Nomor Layanan KLG</h3>
-<p><b>ARAHKAN NOMOR → DEKATKAN → AMBIL FOTO</b></p>
+<p><b>Dekatkan kartu → fokus ke nomor → Ambil Foto</b></p>
 
-<video id="video" autoplay playsinline></video>
+<!-- ===== KAMERA ===== -->
+<div id="cameraBox">
+  <video id="video" autoplay playsinline></video>
+</div>
+
 <canvas id="canvas" style="display:none;"></canvas>
 
 <button onclick="ambilFoto()">📸 Ambil Foto</button>
@@ -38,6 +66,12 @@ button {
 <div id="panel"></div>
 
 <script>
+/* ===============================
+   KONFIG
+================================ */
+const API_URL =
+"https://script.google.com/macros/s/AKfycbzc00z8O_0hJ3HYYyLdSZMLIxmK_BdjjCzueBdfVxEUYFX92VNLb15kd6AM_fid0mgdNQ/exec";
+
 const video = document.getElementById("video");
 const canvas = document.getElementById("canvas");
 const ctx = canvas.getContext("2d");
@@ -46,38 +80,37 @@ const panel = document.getElementById("panel");
 let worker;
 let foundMeta = null;
 
-// =====================
-// KAMERA
-// =====================
+/* ===============================
+   AKSES KAMERA
+================================ */
 navigator.mediaDevices.getUserMedia({
-  video: { facingMode: "environment", width: { ideal: 1280 } }
+  video: {
+    facingMode: "environment",
+    width: { ideal: 1280 }
+  }
 }).then(stream => video.srcObject = stream);
 
-// =====================
-// INIT OCR
-// =====================
+/* ===============================
+   INIT OCR
+================================ */
 (async () => {
-  worker = await Tesseract.createWorker({
-    logger: () => {}
-  });
+  worker = await Tesseract.createWorker({ logger: () => {} });
   await worker.loadLanguage("eng");
   await worker.initialize("eng");
-
-  // 🔒 KUNCI OCR HANYA ANGKA & 1 BARIS
   await worker.setParameters({
     tessedit_char_whitelist: "0123456789",
     tessedit_pageseg_mode: 7
   });
 })();
 
-// =====================
-// AMBIL FOTO (SANGAT FOKUS)
-// =====================
+/* ===============================
+   AMBIL FOTO (FOKUS)
+================================ */
 function ambilFoto() {
   const w = video.videoWidth;
   const h = video.videoHeight;
 
-  // 🔥 AREA SEMPIT KHUSUS ANGKA
+  /* AREA KHUSUS NOMOR LAYANAN */
   const cropX = w * 0.42;
   const cropY = h * 0.58;
   const cropW = w * 0.50;
@@ -86,15 +119,17 @@ function ambilFoto() {
   canvas.width = cropW;
   canvas.height = cropH;
 
-  ctx.drawImage(video, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+  ctx.drawImage(
+    video,
+    cropX, cropY, cropW, cropH,
+    0, 0, cropW, cropH
+  );
 
-  // =====================
-  // PREPROCESSING KERAS
-  // =====================
+  /* PREPROCESS HITAM PUTIH */
   const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
   for (let i = 0; i < img.data.length; i += 4) {
     const gray = (img.data[i] + img.data[i+1] + img.data[i+2]) / 3;
-    const bw = gray > 150 ? 255 : 0;   // HITAM PUTIH
+    const bw = gray > 150 ? 255 : 0;
     img.data[i] = bw;
     img.data[i+1] = bw;
     img.data[i+2] = bw;
@@ -104,30 +139,24 @@ function ambilFoto() {
   panel.innerText = "📸 Foto diambil (fokus nomor)";
 }
 
-// =====================
-// SCAN
-// =====================
+/* ===============================
+   SCAN OCR
+================================ */
 async function scan() {
   panel.innerText = "🔄 Membaca nomor layanan...";
 
-  const { data:{ text }} = await worker.recognize(canvas);
+  const { data:{ text } } = await worker.recognize(canvas);
 
-  // Bersihkan OCR
-  let angka = text
-    .replace(/[^\d]/g, "")
-    .replace(/8/g,"0")  // koreksi OCR umum
-    .replace(/6/g,"0");
-
-  // VALIDASI KERAS
+  let angka = text.replace(/\D/g, "");
   const match = angka.match(/114102\d{9}/);
 
   if (!match) {
     panel.innerText =
-      "❌ GAGAL BACA\n\n" +
-      "Pastikan:\n" +
+      "❌ Gagal membaca nomor\n\n" +
+      "Tips:\n" +
       "• Nomor dekat kamera\n" +
       "• Cahaya terang\n" +
-      "• Tidak miring\n\n" +
+      "• Kartu tidak miring\n\n" +
       "OCR RAW:\n" + text;
     return;
   }
@@ -139,17 +168,11 @@ async function scan() {
     nomorFinal +
     "\n\n⏳ Mengirim ke sistem...";
 
-  // =====================
-  // KIRIM KE BACKEND
-  // =====================
-  fetch(
-    "https://script.google.com/macros/s/AKfycbzc00z8O_0hJ3HYYyLdSZMLIxmK_BdjjCzueBdfVxEUYFX92VNLb15kd6AM_fid0mgdNQ/exec",
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: "action=scan&nomor=" + encodeURIComponent(nomorFinal)
-    }
-  )
+  fetch(API_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: "action=scan&nomor=" + encodeURIComponent(nomorFinal)
+  })
   .then(r => r.json())
   .then(r => {
     if (!r.found) {
@@ -161,7 +184,7 @@ async function scan() {
 
     panel.innerHTML = `
 <b>Nama:</b> ${r.nama}<br>
-<b>Nomor:</b> ${r.nomor}<br>
+<b>Nomor Layanan:</b> ${r.nomor}<br>
 <b>Kelurahan:</b> ${r.kelurahan}<br>
 <b>Kecamatan:</b> ${r.kecamatan}<br>
 <b>Kota:</b> ${r.kota}<br><br>
@@ -172,21 +195,23 @@ async function scan() {
   });
 }
 
-// =====================
+/* ===============================
+   UPDATE STATUS
+================================ */
 function ubahStatus() {
-  fetch(
-    "https://script.google.com/macros/s/AKfycbzc00z8O_0hJ3HYYyLdSZMLIxmK_BdjjCzueBdfVxEUYFX92VNLb15kd6AM_fid0mgdNQ/exec",
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: `action=update&sheet=${foundMeta.sheet}&row=${foundMeta.row}`
-    }
-  ).then(() => panel.innerText = "✅ Status berhasil diubah");
+  fetch(API_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body:
+      "action=update&sheet=" + encodeURIComponent(foundMeta.sheet) +
+      "&row=" + encodeURIComponent(foundMeta.row)
+  })
+  .then(() => panel.innerText = "✅ Status berhasil diubah");
 }
 
-function resetScan(){
-  panel.innerText = "";
+function resetScan() {
   foundMeta = null;
+  panel.innerText = "";
 }
 </script>
 
