@@ -7,30 +7,22 @@
 <script src="https://unpkg.com/tesseract.js@4.0.2/dist/tesseract.min.js"></script>
 
 <style>
-body {
-  font-family: Arial, sans-serif;
-  padding: 12px;
-  background: #ffffff;
-}
+body { font-family: Arial, sans-serif; padding: 12px; }
 
-/* ===== KAMERA DIPENDEKKAN ===== */
 #cameraBox {
-  position: relative;
   width: 100%;
-  height: 40vh;              /* ⬅️ TINGGI KAMERA DIKUNCI */
+  height: 45vh;               /* kamera pendek */
   overflow: hidden;
   border: 2px solid #333;
   border-radius: 8px;
-  margin-bottom: 10px;
 }
 
 video {
   width: 100%;
   height: 100%;
-  object-fit: cover;         /* ⬅️ POTONG VISUAL SAJA */
+  object-fit: cover;
 }
 
-/* ===== UI ===== */
 button {
   width: 100%;
   padding: 16px;
@@ -43,7 +35,7 @@ button {
   padding: 14px;
   background: #f2f2f2;
   border-radius: 8px;
-  font-size: 16px;
+  white-space: pre-wrap;
 }
 </style>
 </head>
@@ -51,9 +43,8 @@ button {
 <body>
 
 <h3>Scan Nomor Layanan KLG</h3>
-<p><b>Dekatkan kartu → fokus ke nomor → Ambil Foto</b></p>
+<p><b>Dekatkan kartu → fokus nomor → Ambil Foto</b></p>
 
-<!-- ===== KAMERA ===== -->
 <div id="cameraBox">
   <video id="video" autoplay playsinline></video>
 </div>
@@ -66,9 +57,6 @@ button {
 <div id="panel"></div>
 
 <script>
-/* ===============================
-   KONFIG
-================================ */
 const API_URL =
 "https://script.google.com/macros/s/AKfycbzc00z8O_0hJ3HYYyLdSZMLIxmK_BdjjCzueBdfVxEUYFX92VNLb15kd6AM_fid0mgdNQ/exec";
 
@@ -80,41 +68,28 @@ const panel = document.getElementById("panel");
 let worker;
 let foundMeta = null;
 
-/* ===============================
-   AKSES KAMERA
-================================ */
+/* ===== KAMERA ===== */
 navigator.mediaDevices.getUserMedia({
-  video: {
-    facingMode: "environment",
-    width: { ideal: 1280 }
-  }
+  video: { facingMode: "environment", width: { ideal: 1280 } }
 }).then(stream => video.srcObject = stream);
 
-/* ===============================
-   INIT OCR
-================================ */
+/* ===== OCR INIT ===== */
 (async () => {
-  worker = await Tesseract.createWorker({ logger: () => {} });
+  worker = await Tesseract.createWorker();
   await worker.loadLanguage("eng");
   await worker.initialize("eng");
-  await worker.setParameters({
-    tessedit_char_whitelist: "0123456789",
-    tessedit_pageseg_mode: 7
-  });
 })();
 
-/* ===============================
-   AMBIL FOTO (FOKUS)
-================================ */
+/* ===== AMBIL FOTO (AMAN & LUAS) ===== */
 function ambilFoto() {
   const w = video.videoWidth;
   const h = video.videoHeight;
 
-  /* AREA KHUSUS NOMOR LAYANAN */
-  const cropX = w * 0.42;
-  const cropY = h * 0.58;
-  const cropW = w * 0.50;
-  const cropH = h * 0.18;
+  /* AREA LUAS (TERBUKTI BERHASIL) */
+  const cropX = w * 0.35;
+  const cropY = h * 0.50;
+  const cropW = w * 0.60;
+  const cropH = h * 0.35;
 
   canvas.width = cropW;
   canvas.height = cropH;
@@ -125,39 +100,21 @@ function ambilFoto() {
     0, 0, cropW, cropH
   );
 
-  /* PREPROCESS HITAM PUTIH */
-  const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
-  for (let i = 0; i < img.data.length; i += 4) {
-    const gray = (img.data[i] + img.data[i+1] + img.data[i+2]) / 3;
-    const bw = gray > 150 ? 255 : 0;
-    img.data[i] = bw;
-    img.data[i+1] = bw;
-    img.data[i+2] = bw;
-  }
-  ctx.putImageData(img, 0, 0);
-
-  panel.innerText = "📸 Foto diambil (fokus nomor)";
+  panel.innerText = "📸 Foto diambil";
 }
 
-/* ===============================
-   SCAN OCR
-================================ */
+/* ===== SCAN OCR ===== */
 async function scan() {
   panel.innerText = "🔄 Membaca nomor layanan...";
 
-  const { data:{ text } } = await worker.recognize(canvas);
+  const { data:{ text }} = await worker.recognize(canvas);
 
-  let angka = text.replace(/\D/g, "");
+  const angka = text.replace(/\D/g, "");
   const match = angka.match(/114102\d{9}/);
 
   if (!match) {
     panel.innerText =
-      "❌ Gagal membaca nomor\n\n" +
-      "Tips:\n" +
-      "• Nomor dekat kamera\n" +
-      "• Cahaya terang\n" +
-      "• Kartu tidak miring\n\n" +
-      "OCR RAW:\n" + text;
+      "❌ Gagal membaca nomor\n\nOCR RAW:\n" + text;
     return;
   }
 
@@ -184,7 +141,7 @@ async function scan() {
 
     panel.innerHTML = `
 <b>Nama:</b> ${r.nama}<br>
-<b>Nomor Layanan:</b> ${r.nomor}<br>
+<b>Nomor:</b> ${r.nomor}<br>
 <b>Kelurahan:</b> ${r.kelurahan}<br>
 <b>Kecamatan:</b> ${r.kecamatan}<br>
 <b>Kota:</b> ${r.kota}<br><br>
@@ -195,9 +152,6 @@ async function scan() {
   });
 }
 
-/* ===============================
-   UPDATE STATUS
-================================ */
 function ubahStatus() {
   fetch(API_URL, {
     method: "POST",
