@@ -4,63 +4,117 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Scan Nomor Layanan KLG</title>
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 12px;
+    }
+    video {
+      width: 100%;
+      border: 1px solid #ccc;
+      margin-bottom: 8px;
+    }
+    button {
+      padding: 10px;
+      margin-right: 6px;
+      font-size: 14px;
+    }
+    #result {
+      margin-top: 10px;
+      font-weight: bold;
+      white-space: pre-wrap;
+    }
+  </style>
 </head>
 <body>
 
 <h3>Scan Nomor Layanan KLG</h3>
 
-<video id="video" autoplay playsinline style="width:100%;border:1px solid #ccc;"></video>
+<video id="video" autoplay playsinline></video>
 <canvas id="canvas" style="display:none;"></canvas>
 
-<br>
 <button onclick="ambilFoto()">📸 Ambil Foto</button>
 <button onclick="scan()">🔍 Scan</button>
 
-<div id="result" style="margin-top:10px;font-weight:bold;"></div>
+<div id="result"></div>
 
 <script>
 const video = document.getElementById("video");
 const canvas = document.getElementById("canvas");
 const ctx = canvas.getContext("2d");
+const resultDiv = document.getElementById("result");
 
-// AKSES KAMERA
-navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } })
-  .then(stream => {
-    video.srcObject = stream;
-  })
-  .catch(err => {
-    alert("GAGAL AKSES KAMERA");
-    console.error(err);
-  });
+// === AKTIFKAN KAMERA BELAKANG ===
+navigator.mediaDevices.getUserMedia({
+  video: { facingMode: "environment" }
+})
+.then(stream => {
+  video.srcObject = stream;
+})
+.catch(err => {
+  alert("Gagal akses kamera. Pastikan izin kamera diaktifkan.");
+  console.error(err);
+});
 
+// === AMBIL FOTO ===
 function ambilFoto() {
   canvas.width = video.videoWidth;
   canvas.height = video.videoHeight;
   ctx.drawImage(video, 0, 0);
-  document.getElementById("result").innerText = "📸 Foto diambil";
+  resultDiv.innerText = "📸 Foto diambil. Silakan Scan.";
 }
 
+// === OCR + KIRIM KE APPS SCRIPT ===
 function scan() {
-  document.getElementById("result").innerText = "🔄 Membaca...";
+  resultDiv.innerText = "🔄 Membaca nomor layanan...";
 
-  Tesseract.recognize(canvas, 'eng', {
-    tessedit_char_whitelist: '0123456789'
-  }).then(({ data: { text } }) => {
+  Tesseract. recognize(
+    canvas,
+    'eng',
+    {
+      tessedit_char_whitelist: '0123456789',
+      preserve_interword_spaces: 1
+    }
+  ).then(({ data: { text } }) => {
 
-    const nomor = text.replace(/\D/g, '');
+    // Ambil hanya angka, minimal 10 digit
+    const nomor = text.replace(/\D/g, '').trim();
 
-    fetch("https://script.google.com/macros/s/AKfycbwqemGySx5h5X1JKHlH_TKyd2PSr224MCKeYObWDuF8LL9Vt4oMq5Gyfuh2fIaZ9DMVwA/exec", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded"
-      },
-      body: "nomor=" + nomor
-    })
+    if (nomor.length < 10) {
+      resultDiv.innerText =
+        "❌ Nomor layanan tidak terbaca dengan benar.\n\nHasil OCR:\n" + text;
+      return;
+    }
+
+    resultDiv.innerText =
+      "📨 Nomor terbaca:\n" + nomor + "\n\n⏳ Mengirim ke sistem...";
+
+    // === KIRIM KE APPS SCRIPT ===
+    fetch(
+      "https://script.google.com/macros/s/AKfycbwqemGySx5h5X1JKHlH_TKyd2PSr224MCKeYObWDuF8LL9Vt4oMq5Gyfuh2fIaZ9DMVwA/exec",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded"
+        },
+        body: "nomor=" + encodeURIComponent(nomor)
+      }
+    )
     .then(res => res.json())
     .then(r => {
-      document.getElementById("result").innerText =
-        r.found? "✅ DITEMUKAN" : "❌ TIDAK DITEMUKAN";
+      if (r.found) {
+        resultDiv.innerText =
+          "✅ DITEMUKAN\nStatus berhasil diperbarui di spreadsheet.";
+      } else {
+        resultDiv.innerText =
+          "❌ TIDAK DITEMUKAN\nNomor tidak ada di batch manapun.";
+      }
+    })
+    .catch(err => {
+      resultDiv.innerText = "❌ Gagal mengirim ke server.";
+      console.error(err);
     });
+
   });
 }
 </script>
