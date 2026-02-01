@@ -32,35 +32,38 @@ const canvas = document.getElementById("canvas");
 const ctx = canvas.getContext("2d");
 const resultDiv = document.getElementById("result");
 
-let worker;
+let worker = null;
 
-// === AKTIFKAN KAMERA ===
-navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } })
-  .then(stream => video.srcObject = stream)
-  .catch(() => alert("Gagal akses kamera"));
+/* ======================
+   AKTIFKAN KAMERA
+====================== */
+navigator.mediaDevices.getUserMedia({
+  video: { facingMode: "environment" }
+})
+.then(stream => video.srcObject = stream)
+.catch(() => alert("❌ Gagal akses kamera"));
 
-// === INIT OCR (DIKUNCI UNTUK ANGKA) ===
+/* ======================
+   INIT OCR (ANGKA ONLY)
+====================== */
 (async () => {
-  worker = await Tesseract.createWorker({
-    logger: m => console.log(m)
-  });
-
+  worker = await Tesseract.createWorker();
   await worker.loadLanguage("eng");
   await worker.initialize("eng");
-
-  // 🔒 BATASI OCR HANYA ANGKA
   await worker.setParameters({
     tessedit_char_whitelist: "0123456789",
     tessedit_pageseg_mode: Tesseract.PSM.SINGLE_LINE
   });
 })();
 
-// === AMBIL FOTO + CROP AREA NOMOR LAYANAN ===
+/* ======================
+   AMBIL FOTO + CROP
+====================== */
 function ambilFoto() {
   const w = video.videoWidth;
   const h = video.videoHeight;
 
-  // Area bawah-kanan (nomor layanan)
+  // Area nomor layanan (bawah kanan kartu)
   const cropX = w * 0.45;
   const cropY = h * 0.55;
   const cropW = w * 0.5;
@@ -75,7 +78,7 @@ function ambilFoto() {
     0, 0, cropW, cropH
   );
 
-  // Grayscale (tingkatkan kontras)
+  // Grayscale
   const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
   for (let i = 0; i < img.data.length; i += 4) {
     const g = (img.data[i] + img.data[i+1] + img.data[i+2]) / 3;
@@ -86,35 +89,79 @@ function ambilFoto() {
   resultDiv.innerText = "📸 Foto diambil";
 }
 
-// === OCR → HASIL PASTI ANGKA ===
+/* ======================
+   OCR MULTI-SCAN + VOTING
+====================== */
 async function scan() {
   if (!worker) {
     resultDiv.innerText = "❌ OCR belum siap";
     return;
   }
 
-  resultDiv.innerText = "🔄 Membaca nomor layanan...";
+  resultDiv.innerText = "🔄 Membaca nomor layanan (3x scan)...";
 
-  const { data: { text } } = await worker.recognize(canvas);
+  const scans = [];
 
-  // 🔐 FINAL FILTER: HANYA ANGKA
-  let angka = text.replace(/\D/g, "");
+  // OCR 3 KALI
+  for (let i = 0; i < 3; i++) {
+    const { data: { text } } = await worker.recognize(canvas);
+    let angka = text.replace(/\D/g, "");
 
-  // 🔑 NORMALISASI: nomor layanan selalu diawali "1"
-  const idx = angka.indexOf("1");
-  if (idx !== -1) angka = angka.substring(idx);
+    // Normalisasi: nomor layanan selalu diawali "1"
+    const idx = angka.indexOf("1");
+    if (idx !== -1) angka = angka.substring(idx);
 
-  // Validasi minimum panjang
-  if (angka.length < 14) {
+    scans.push(angka);
+  }
+
+  // Voting per digit
+  const maxLen = Math.max(...scans.map(s => s.length));
+  let final = "";
+
+  for (let i = 0; i < maxLen; i++) {
+    const freq = {};
+    scans.forEach(s => {
+      const d = s[i];
+      if (!d) return;
+      freq[d] = (freq[d] || 0) + 1;
+    });
+
+    const best = Object.entries(freq)
+      .sort((a, b) => b[1] - a[1])[0];
+
+    if (best) final += best[0];
+  }
+
+  if (final.length < 14) {
     resultDiv.innerText =
-      "❌ Nomor tidak valid\n\nOCR RAW:\n" + text;
+      "❌ Nomor tidak valid\n\nOCR RAW:\n" + scans.join("\n");
     return;
   }
 
   resultDiv.innerText =
-    "📨 Nomor terbaca (VALID):\n" + angka;
+    "📨 Nomor FINAL:\n" + final + "\n\n⏳ Mengirim ke sistem...";
 
-  // 👉 di sini kamu bisa langsung kirim ke backend
+  /* ======================
+     KIRIM KE BACKEND
+  ====================== */
+  fetch(
+    "https://script.google.com/macros/s/AKfycbyEzNfSSSgMabfvACFwwkHK9uk6gf1L6xwVwMvPCnQaFJNJfXKEEkeeVcsnV57Xpitpxg/exec",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: "nomor=" + encodeURIComponent(final)
+    }
+  )
+  .then(res => res.json())
+  .then(r => {
+    resultDiv.innerText =
+      r.found
+        ? "✅ DITEMUKAN\nStatus diperbarui di spreadsheet"
+        : "❌ TIDAK DITEMUKAN\nNomor tidak ada di batch";
+  })
+  .catch(err => {
+    resultDiv.innerText = "❌ Gagal mengirim ke server\n" + err;
+  });
 }
 </script>
 
