@@ -4,7 +4,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Scan Nomor Layanan KLG</title>
 
-  <!-- OCR -->
   <script src="https://unpkg.com/tesseract.js@4.0.2/dist/tesseract.min.js"></script>
 
   <style>
@@ -13,14 +12,9 @@
       padding: 12px;
       background: #f7f7f7;
     }
-    h3 {
-      margin-bottom: 4px;
-    }
-    .hint {
-      font-size: 14px;
-      color: #555;
-      margin-bottom: 8px;
-    }
+    h3 { margin-bottom: 4px; }
+    .hint { font-size: 14px; color: #555; margin-bottom: 8px; }
+
     .camera-box {
       position: relative;
       width: 100%;
@@ -34,13 +28,14 @@
       width: 100%;
       display: block;
     }
-    /* OVERLAY FRAME */
+
+    /* FRAME VISUAL */
     .overlay {
       position: absolute;
-      left: 15%;
-      top: 60%;
-      width: 70%;
-      height: 18%;
+      left: 8%;
+      top: 58%;
+      width: 84%;
+      height: 22%;
       border: 3px dashed #00ff00;
       border-radius: 10px;
       pointer-events: none;
@@ -48,13 +43,15 @@
     }
     .overlay-text {
       position: absolute;
-      bottom: -28px;
+      bottom: -26px;
       width: 100%;
       text-align: center;
       font-size: 13px;
       color: #00aa00;
       font-weight: bold;
+      pointer-events: none;
     }
+
     button {
       width: 100%;
       padding: 14px;
@@ -65,9 +62,8 @@
       background: #1976d2;
       color: #fff;
     }
-    button.secondary {
-      background: #555;
-    }
+    button.secondary { background: #555; }
+
     #panel {
       margin-top: 12px;
       background: #fff;
@@ -76,22 +72,19 @@
       font-weight: bold;
       white-space: pre-wrap;
     }
-    canvas {
-      display: none;
-    }
+    canvas { display: none; }
   </style>
 </head>
 
 <body>
 
 <h3>Scan Nomor Layanan KLG</h3>
-<div class="hint">Dekatkan kartu → fokus ke nomor → Ambil Foto</div>
+<div class="hint">Dekatkan kartu → luruskan → fokus ke nomor</div>
 
 <div class="camera-box">
   <video id="video" autoplay playsinline></video>
-  <div class="overlay">
-    <div class="overlay-text">Arahkan nomor layanan ke dalam kotak</div>
-  </div>
+  <div class="overlay"></div>
+  <div class="overlay-text">Pastikan SELURUH nomor masuk kotak</div>
 </div>
 
 <canvas id="canvas"></canvas>
@@ -109,41 +102,30 @@ const panel = document.getElementById("panel");
 
 let worker = null;
 
-// ===============================
-// AKSES KAMERA
-// ===============================
+// ================= KAMERA =================
 navigator.mediaDevices.getUserMedia({
   video: { facingMode: "environment" }
 })
-.then(stream => {
-  video.srcObject = stream;
-})
-.catch(() => {
-  alert("❌ Gagal mengakses kamera");
-});
+.then(stream => video.srcObject = stream)
+.catch(() => alert("❌ Kamera tidak dapat diakses"));
 
-// ===============================
-// INIT OCR WORKER
-// ===============================
+// ================= OCR INIT =================
 (async () => {
-  worker = await Tesseract.createWorker({
-    logger: () => {} // silent
-  });
+  worker = await Tesseract.createWorker();
   await worker.loadLanguage("eng");
   await worker.initialize("eng");
 })();
 
-// ===============================
-// AMBIL FOTO + CROP SESUAI FRAME
-// ===============================
+// ================= AMBIL FOTO (CROP LEBAR) =================
 function ambilFoto() {
   const w = video.videoWidth;
   const h = video.videoHeight;
 
-  const cropX = w * 0.15;
-  const cropY = h * 0.60;
-  const cropW = w * 0.70;
-  const cropH = h * 0.18;
+  // 🔴 INI KUNCI PERBAIKAN
+  const cropX = w * 0.05;
+  const cropY = h * 0.55;
+  const cropW = w * 0.90;   // ⬅️ LEBAR (angka belakang aman)
+  const cropH = h * 0.28;   // ⬅️ sedikit lebih tinggi
 
   canvas.width = cropW;
   canvas.height = cropH;
@@ -154,36 +136,24 @@ function ambilFoto() {
     0, 0, cropW, cropH
   );
 
-  panel.innerText = "📸 Foto diambil. Siap dipindai.";
+  panel.innerText = "📸 Foto diambil. Siap scan.";
 }
 
-// ===============================
-// LOGIKA PEMBERSIH & DETEKSI NOMOR
-// ===============================
+// ================= LOGIKA ANGKA =================
 function cariNomorValid(raw) {
   const digits = raw.replace(/\D/g, "");
 
+  // cari substring angka panjang fleksibel, diawali 1
   for (let i = 0; i < digits.length; i++) {
     for (let len = 10; len <= 18; len++) {
       const potong = digits.substr(i, len);
-
-      if (!/^1\d+$/.test(potong)) continue;
-
-      // PRIORITAS KUAT (KLG)
-      if (potong.startsWith("114102")) {
-        return potong;
-      }
+      if (/^1\d+$/.test(potong)) return potong;
     }
   }
-
-  // fallback: ambil angka terpanjang yang diawali 1
-  const kandidat = digits.match(/1\d{9,17}/);
-  return kandidat ? kandidat[0] : null;
+  return null;
 }
 
-// ===============================
-// OCR + KIRIM KE BACKEND
-// ===============================
+// ================= OCR + KIRIM =================
 async function scan() {
   if (!worker) {
     panel.innerText = "❌ OCR belum siap";
@@ -193,7 +163,6 @@ async function scan() {
   panel.innerText = "🔄 Membaca nomor layanan...";
 
   const { data: { text } } = await worker.recognize(canvas);
-
   const nomorFinal = cariNomorValid(text);
 
   if (!nomorFinal) {
@@ -211,9 +180,7 @@ async function scan() {
     "https://script.google.com/macros/s/AKfycbzc00z8O_0hJ3HYYyLdSZMLIxmK_BdjjCzueBdfVxEUYFX92VNLb15kd6AM_fid0mgdNQ/exec",
     {
       method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded"
-      },
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: "nomor=" + encodeURIComponent(nomorFinal)
     }
   )
@@ -224,7 +191,7 @@ async function scan() {
       : "❌ TIDAK DITEMUKAN\nNomor tidak ada di batch";
   })
   .catch(err => {
-    panel.innerText = "❌ Gagal mengirim ke server\n" + err;
+    panel.innerText = "❌ Gagal kirim ke server\n" + err;
   });
 }
 </script>
