@@ -16,7 +16,9 @@
   --text: #111827;
 }
 
-* { box-sizing: border-box; }
+* {
+  box-sizing: border-box;
+}
 
 body {
   margin: 0;
@@ -93,6 +95,7 @@ button.primary {
 }
 button.secondary {
   background: #fff;
+  color: var(--text);
 }
 button.success {
   background: var(--success);
@@ -131,9 +134,13 @@ button.success {
   margin-top: 8px;
 }
 
-.hidden { display: none; }
+.hidden {
+  display: none;
+}
 
-canvas { display: none; }
+canvas {
+  display: none;
+}
 </style>
 </head>
 
@@ -160,11 +167,26 @@ canvas { display: none; }
 <div class="card status" id="panel"></div>
 
 <div class="card hidden" id="preview">
-  <div class="preview-row"><div class="preview-label">Nama</div><div class="preview-value" id="pNama">-</div></div>
-  <div class="preview-row"><div class="preview-label">Nomor Layanan</div><div class="preview-value" id="pNomor">-</div></div>
-  <div class="preview-row"><div class="preview-label">Kelurahan</div><div class="preview-value" id="pKel">-</div></div>
-  <div class="preview-row"><div class="preview-label">Kecamatan</div><div class="preview-value" id="pKec">-</div></div>
-  <div class="preview-row"><div class="preview-label">Kota</div><div class="preview-value" id="pKota">-</div></div>
+  <div class="preview-row">
+    <div class="preview-label">Nama</div>
+    <div class="preview-value" id="pNama">-</div>
+  </div>
+  <div class="preview-row">
+    <div class="preview-label">Nomor Layanan</div>
+    <div class="preview-value" id="pNomor">-</div>
+  </div>
+  <div class="preview-row">
+    <div class="preview-label">Kelurahan</div>
+    <div class="preview-value" id="pKel">-</div>
+  </div>
+  <div class="preview-row">
+    <div class="preview-label">Kecamatan</div>
+    <div class="preview-value" id="pKec">-</div>
+  </div>
+  <div class="preview-row">
+    <div class="preview-label">Kota</div>
+    <div class="preview-value" id="pKota">-</div>
+  </div>
 
   <div class="actions">
     <button class="success" onclick="ubahStatus()">Ubah Status</button>
@@ -183,8 +205,7 @@ canvas { display: none; }
 <canvas id="canvas"></canvas>
 
 <script>
-const API_URL =
-"https://script.google.com/macros/s/AKfycbwJidSxMP_M7EMmNzszo-qhermEXEdxeW0O-ePyMoNEopAoMh46Gy5PboCWxwogqvR7IA/exec";
+const API_URL = "https://script.google.com/macros/s/AKfycbwJidSxMP_M7EMmNzszo-qhermEXEdxeW0O-ePyMoNEopAoMh46Gy5PboCWxwogqvR7IA/exec";
 
 const video = document.getElementById("video");
 const canvas = document.getElementById("canvas");
@@ -203,39 +224,19 @@ const pKota = document.getElementById("pKota");
 
 let worker;
 let foundMeta = null;
-let cameraStream = null;
 
-/* ================= CAMERA CONTROL ================= */
-function startCamera() {
-  if (cameraStream) return;
+/* CAMERA */
+navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } })
+  .then(s => video.srcObject = s);
 
-  navigator.mediaDevices.getUserMedia({
-    video: { facingMode: "environment" }
-  }).then(stream => {
-    cameraStream = stream;
-    video.srcObject = stream;
-  });
-}
-
-function stopCamera() {
-  if (cameraStream) {
-    cameraStream.getTracks().forEach(t => t.stop());
-    cameraStream = null;
-    video.srcObject = null;
-  }
-}
-
-/* START CAMERA ON LOAD */
-startCamera();
-
-/* ================= OCR INIT ================= */
+/* OCR */
 (async () => {
   worker = await Tesseract.createWorker();
   await worker.loadLanguage("eng");
   await worker.initialize("eng");
 })();
 
-/* ================= FOTO ================= */
+/* FOTO */
 function ambilFoto() {
   const w = video.videoWidth;
   const h = video.videoHeight;
@@ -250,12 +251,10 @@ function ambilFoto() {
   ctx.imageSmoothingEnabled = false;
 
   ctx.drawImage(video, cropX, cropY, cropW, cropH, 0, 0, canvas.width, canvas.height);
-
-  stopCamera(); // ⛔ MATIKAN KAMERA
   panel.innerText = "Foto diambil. Silakan lakukan pemindaian.";
 }
 
-/* ================= SCAN ================= */
+/* SCAN */
 async function scan() {
   panel.innerText = "Membaca nomor layanan...";
   preview.classList.add("hidden");
@@ -272,9 +271,8 @@ async function scan() {
   kirimKeBackend(digits);
 }
 
-/* ================= MANUAL ================= */
+/* MANUAL */
 function bukaManual() {
-  stopCamera(); // ⛔ MATIKAN KAMERA
   panel.innerText = "Masukkan nomor layanan secara manual.";
   manualSection.classList.remove("hidden");
   preview.classList.add("hidden");
@@ -291,7 +289,7 @@ function kirimManual() {
   kirimKeBackend(nomor);
 }
 
-/* ================= BACKEND ================= */
+/* BACKEND */
 function kirimKeBackend(nomor) {
   panel.innerText = "Mencari data...";
 
@@ -322,14 +320,13 @@ function showPreview(r) {
   preview.classList.remove("hidden");
 }
 
-/* ================= UPDATE ================= */
+/* UPDATE */
 function ubahStatus() {
   fetch(API_URL, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body:
-      "action=update&sheet=" + encodeURIComponent(foundMeta.sheet) +
-      "&row=" + encodeURIComponent(foundMeta.row)
+    body: "action=update&sheet=" + encodeURIComponent(foundMeta.sheet) +
+          "&row=" + encodeURIComponent(foundMeta.row)
   })
   .then(() => {
     panel.innerText = "Status berhasil diperbarui.";
@@ -343,8 +340,6 @@ function resetAll() {
   manualSection.classList.add("hidden");
   manualInput.value = "";
   foundMeta = null;
-
-  startCamera(); // ▶️ NYALAKAN KAMERA LAGI
 }
 </script>
 
